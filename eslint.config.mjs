@@ -58,6 +58,8 @@ export default tseslint.config(
       quotes: ["error", "double"],
       // Next.js specific rules
       "@next/next/no-html-link-for-pages": "error",
+      // Suppress deprecation warning for tseslint.config which is the current recommended approach
+      "@typescript-eslint/no-deprecated": "warn",
     },
   },
 );

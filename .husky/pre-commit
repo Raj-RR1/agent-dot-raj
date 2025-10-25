@@ -1,7 +1,7 @@
 # 🔍 Run lint-staged
 echo ""
 echo "🔍 Running lint-staged..."
-pnpm lint-staged
+bun lint-staged
 
 if [ $? -ne 0 ]; then
   echo "❌ lint-staged failed. Fix the issues before committing."
@@ -13,7 +13,7 @@ fi
 # 🚨 Run ESLint in production mode
 echo ""
 echo "🚨 Running production lint (ESLint)..."
-pnpm lint:prod
+bun lint:prod
 
 if [ $? -ne 0 ]; then
   echo "❌ ESLint failed in production mode. Please fix lint errors."
@@ -25,7 +25,7 @@ fi
 # 🛠️  TypeScript type check
 echo ""
 echo "🛠️  Running TypeScript type check..."
-pnpm tsc
+bun tsc
 
 if [ $? -ne 0 ]; then
   echo "❌ TypeScript type check failed. Fix type errors before committing."
@@ -37,7 +37,7 @@ fi
 # 🏗️  Build project
 echo ""
 echo "🏗️  Building project..."
-pnpm build
+bun run build
 
 if [ $? -ne 0 ]; then
   echo "❌ Build failed. Fix build errors before committing."

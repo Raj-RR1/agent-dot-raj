@@ -1,6 +1,7 @@
 import { prompt } from "@/agents/prompt";
 import {
   bondAgent,
+  bondExtraAgent,
   bondExtraNominationPoolsAgent,
   getActiveAccount,
   getActiveNetwork,
@@ -44,6 +45,7 @@ const tools: ToolSet = {
   xcmAgent: xcmAgent,
   xcmStablecoinFromAssetHub: xcmStablecoinFromAssetHub,
   bondAgent: bondAgent,
+  bondExtraAgent: bondExtraAgent,
   nominateAgent: nominateAgent,
   unbondAgent: unbondAgent,
   joinNominationPoolsAgent: joinNominationPoolsAgent,
@@ -68,6 +70,7 @@ export async function POST(req: Request) {
     ],
     stopWhen: stepCountIs(3), // stop after 3 steps to avoid RPM (requests per minute) limits breach on OpenAI free tier.
     tools,
+    abortSignal: req.signal, // Pass the request's abort signal to properly handle cancellation
   });
 
   return result.toUIMessageStreamResponse();

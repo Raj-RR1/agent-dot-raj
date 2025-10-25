@@ -24,7 +24,7 @@ export default function Chat() {
     setActiveRpcChainRef,
   } = useRefObject();
 
-  const { messages, sendMessage, addToolResult, status } = useChat({
+  const { messages, sendMessage, addToolResult, status, stop } = useChat({
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
     transport: new DefaultChatTransport({
       api: "/api/chat",
@@ -57,7 +57,11 @@ export default function Chat() {
           status={status}
           sendMessage={sendMessage}
         />
-        <PromptInputForm sendMessage={sendMessage} status={status} />
+        <PromptInputForm
+          sendMessage={sendMessage}
+          status={status}
+          stop={stop}
+        />
       </div>
     </>
   );

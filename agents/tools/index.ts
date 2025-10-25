@@ -19,6 +19,7 @@ export {
 
 export {
   bondAgent,
+  bondExtraAgent,
   getAvailableValidators,
   nominateAgent,
   unbondAgent,

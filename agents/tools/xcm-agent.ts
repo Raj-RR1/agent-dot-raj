@@ -66,6 +66,20 @@ const xcmAgent = tool({
         };
       }
 
+      // Block teleport transactions from PAssetHub (Paseo Asset Hub)
+      if (srcNodeName === "AssetHubPaseo" || srcNodeName === "PAssetHub") {
+        return {
+          message: `Teleport transactions from ${src} are currently not supported. Please use a different source chain.`,
+        };
+      }
+
+      // Block teleport transactions to PAssetHub (Paseo Asset Hub)
+      if (dstNodeName === "AssetHubPaseo" || dstNodeName === "PAssetHub") {
+        return {
+          message: `Teleport transactions to ${dst} are currently not supported. Please use a different destination chain.`,
+        };
+      }
+
       if (!hasSupportForAsset(srcNodeName, symbol)) {
         return {
           message: `Teleport of ${symbol} is not supported on ${srcNodeName}.`,

@@ -211,6 +211,82 @@ export function useStaking() {
     [selectedAccount],
   );
 
+  const bondExtra = useCallback(
+    async ({
+      amount,
+      sendMessage,
+    }: {
+      amount: number;
+      sendMessage: UseChatHelpers<UIMessage>["sendMessage"];
+    }) => {
+      if (!selectedAccount) {
+        toast.error("Please connect your wallet first");
+        void sendMessage({
+          role: "assistant",
+          parts: [
+            {
+              type: "text",
+              text: "Please connect your wallet first",
+            },
+          ],
+        });
+      }
+
+      if (selectedAccount && client && activeChain) {
+        const toastId = toast.loading(
+          `Processing the bond extra transaction of ${amount.toFixed(2)} ${activeChain.chainSpec.properties.tokenSymbol}`,
+        );
+        try {
+          const maxAdditional = BigInt(
+            convertAmountToPlancks(
+              amount,
+              activeChain.chainSpec.properties.tokenDecimals,
+            ),
+          );
+          const descriptors = activeChain.descriptors as StakingDescriptors;
+          const api = client.getTypedApi(descriptors);
+          const tx = await api.tx.Staking.bond_extra({
+            max_additional: maxAdditional,
+          }).signAndSubmit(selectedAccount.polkadotSigner);
+
+          if (!tx.ok) {
+            throw new Error(
+              `${tx.dispatchError.type}: ${JSON.stringify(tx.dispatchError.value, null, 2)}`,
+            );
+          }
+
+          toast.success(
+            `Bond extra transaction of ${amount.toFixed(2)} ${activeChain.chainSpec.properties.tokenSymbol} was successfully submitted. Transaction hash: ${tx.txHash}`,
+            {
+              id: toastId,
+            },
+          );
+
+          void sendMessage({
+            role: "assistant",
+            parts: [
+              {
+                type: "text",
+                text: `Bond extra transaction of ${amount.toFixed(2)} ${activeChain.chainSpec.properties.tokenSymbol} was successfully submitted. Transaction hash: ${tx.txHash}`,
+              },
+            ],
+          });
+        } catch (e) {
+          const errorMessage =
+            e instanceof Error ? e.message : "An unknown error occurred.";
+          toast.error(`Failed to bond extra: ${errorMessage}`, {
+            id: toastId,
+          });
+
+          void sendMessage({
+            text: `Failed to bond extra: ${errorMessage}`,
+          });
+        }
+      }
+    },
+    [selectedAccount, client, activeChain],
+  );
+
   const nominate = useCallback(
     async ({
       targets,
@@ -283,6 +359,7 @@ export function useStaking() {
 
   return {
     bond,
+    bondExtra,
     unbond,
     nominate,
   };

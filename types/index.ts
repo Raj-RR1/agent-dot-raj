@@ -56,6 +56,10 @@ export interface Bond {
   rewardAccount?: string;
 }
 
+export interface BondExtra {
+  maxAdditional: number;
+}
+
 export interface Nominate {
   targets: string[];
 }

@@ -10,7 +10,7 @@ import z from "zod";
 export const bondAgent = tool({
   name: "bondAgent",
   description:
-    "Bond tokens for staking on a Proof-of-Stake network within the Polkadot ecosystem (e.g., Polkadot, Kusama, Westend, Paseo). This locks a specified amount of tokens from a stash account and sets a controller account to manage staking operations, as well as defining how staking rewards will be received.",
+    "Bond tokens for staking on a Proof-of-Stake network within the Polkadot ecosystem. IMPORTANT: Staking locations - Polkadot: Use Polkadot relay chain. Kusama/Westend/Paseo: Use their respective AssetHub chains (Kusama AssetHub, Westend AssetHub, Paseo AssetHub) as staking has migrated there. This locks a specified amount of tokens from a stash account and sets a controller account to manage staking operations, as well as defining how staking rewards will be received.",
   inputSchema: z.object({
     stashAccount: z
       .string()
@@ -67,28 +67,31 @@ export const bondAgent = tool({
     rewardAccount,
     network,
   }) => {
-    const chain = SYMBOL_TO_RELAY_CHAIN[tokenSymbol];
+    const relayChain = SYMBOL_TO_RELAY_CHAIN[tokenSymbol];
+    const normalizedNetwork = network.trim().toLowerCase();
 
     try {
-      if (
-        chain !== network &&
-        ["polkadot", "kusama", "westend", "paseo"].includes(
-          network.toLowerCase(),
-        )
-      ) {
-        return {
-          message: `${network} is a relay chain and cannot be used for staking ${tokenSymbol}.`,
-        };
-      }
-      if (
-        chain !== network &&
-        !["polkadot", "kusama", "westend", "paseo"].includes(
-          network.toLowerCase(),
-        )
-      ) {
-        return {
-          message: `${network} is a system chain and cannot be used for staking ${tokenSymbol}.`,
-        };
+      // Check if user is on the correct chain for staking
+      // Polkadot: staking is still on relay chain
+      // Others (Kusama, Westend, Paseo): staking has migrated to AssetHub
+      if (tokenSymbol === "DOT") {
+        if (normalizedNetwork !== "polkadot") {
+          return {
+            message: `Staking for ${tokenSymbol} is only available on Polkadot relay chain. Your current network is ${network}. Please switch to Polkadot to stake ${tokenSymbol}.`,
+          };
+        }
+      } else {
+        // For all other chains, staking is on AssetHub
+        const assetHubName = `${relayChain} AssetHub`.toLowerCase();
+        if (
+          normalizedNetwork !== assetHubName &&
+          normalizedNetwork !== "westend assethub" &&
+          normalizedNetwork !== "paseo assethub"
+        ) {
+          return {
+            message: `Staking for ${tokenSymbol} is only available on ${relayChain} AssetHub. Your current network is ${network}. Please switch to ${relayChain} AssetHub to stake ${tokenSymbol}.`,
+          };
+        }
       }
       if (payee === "Account") {
         if (!rewardAccount) {
@@ -134,6 +137,108 @@ export const bondAgent = tool({
   },
 });
 
+export const bondExtraAgent = tool({
+  name: "bondExtraAgent",
+  description:
+    "Add more tokens to an existing bonded stake for staking on a Proof-of-Stake network within the Polkadot ecosystem. IMPORTANT: Staking locations - Polkadot: Use Polkadot relay chain. Kusama/Westend/Paseo: Use their respective AssetHub chains (Kusama AssetHub, Westend AssetHub, Paseo AssetHub) as staking has migrated there. This increases the amount of tokens already locked in the stash account without changing the controller or reward destination. Use this when the account already has bonded tokens and wants to stake more.",
+  inputSchema: z.object({
+    controllerAccount: z
+      .string()
+      .describe(
+        "The address of the controller account on the respective network that manages the staking operations.",
+      ),
+    network: z.string().describe("The name of the active network/chain."),
+    maxAdditional: z
+      .number()
+      .describe(
+        "The maximum additional amount of tokens to bond from the stash account's free balance (e.g., '10', '0.5'). The token symbol should be provided separately in 'tokenSymbol'. This amount will be added to the existing bonded amount. (Type: Compact<u128> / BalanceOf)",
+      ),
+    tokenSymbol: z
+      .enum(["DOT", "KSM", "WND", "PAS"])
+      .optional()
+      .default("DOT")
+      .describe(
+        "The token symbol of the network you are bonding on (e.g., 'DOT' for Polkadot, 'KSM' for Kusama). Defaults to 'DOT'.",
+      ),
+  }),
+  outputSchema: z.object({
+    tx: z
+      .object({
+        maxAdditional: z.number(),
+      })
+      .optional(),
+    message: z.string(),
+  }),
+  // eslint-disable-next-line @typescript-eslint/require-await
+  execute: async ({
+    controllerAccount,
+    maxAdditional,
+    tokenSymbol,
+    network,
+  }) => {
+    const relayChain = SYMBOL_TO_RELAY_CHAIN[tokenSymbol];
+    const normalizedNetwork = network.trim().toLowerCase();
+
+    try {
+      if (maxAdditional <= 0) {
+        return {
+          message: "Please provide a positive numeric value for bonding.",
+        };
+      }
+
+      if (!controllerAccount) {
+        return {
+          message: "Please provide a controller account address.",
+        };
+      }
+
+      if (!isValidSS58Address(controllerAccount)) {
+        return {
+          message:
+            "The provided controller account address is not a valid SS58 address.",
+        };
+      }
+
+      // Check if user is on the correct chain for staking
+      // Polkadot: staking is still on relay chain
+      // Others (Kusama, Westend, Paseo): staking has migrated to AssetHub
+      if (tokenSymbol === "DOT") {
+        if (normalizedNetwork !== "polkadot") {
+          return {
+            message: `Staking for ${tokenSymbol} is only available on Polkadot relay chain. Your current network is ${network}. Please switch to Polkadot to stake ${tokenSymbol}.`,
+          };
+        }
+      } else {
+        // For all other chains, staking is on AssetHub
+        const assetHubName = `${relayChain} AssetHub`.toLowerCase();
+        if (
+          normalizedNetwork !== assetHubName &&
+          normalizedNetwork !== "westend assethub" &&
+          normalizedNetwork !== "paseo assethub"
+        ) {
+          return {
+            message: `Staking for ${tokenSymbol} is only available on ${relayChain} AssetHub. Your current network is ${network}. Please switch to ${relayChain} AssetHub to stake ${tokenSymbol}.`,
+          };
+        }
+      }
+
+      return {
+        tx: {
+          maxAdditional,
+        },
+        message: `
+        controllerAccount: ${controllerAccount}
+        A bond extra request of ${maxAdditional.toFixed(2)} ${tokenSymbol} tokens on ${network} has been prepared. This will add to your existing bonded stake. Please sign and submit the transaction using your wallet to bond the additional tokens.`,
+      };
+    } catch (error) {
+      const err = error as Error;
+      return {
+        message: `Failed to prepare bond extra: ${err.message}`,
+      };
+    }
+  },
+});
+
 export const getAvailableValidators = tool({
   name: "getAvailableValidators",
   description:
@@ -144,7 +249,7 @@ export const getAvailableValidators = tool({
 export const nominateAgent = tool({
   name: "nominateAgent",
   description:
-    "Nominate a list of validators to stake tokens with on a network within the Polkadot ecosystem (e.g., Polkadot, Kusama, Westend, Paseo). This action registers your intention to stake with specific validators and is essential for earning staking rewards. The maximum number of nominators varies by network.",
+    "Nominate a list of validators to stake tokens with on a network within the Polkadot ecosystem. IMPORTANT: Staking locations - Polkadot: Use Polkadot relay chain. Kusama/Westend/Paseo: Use their respective AssetHub chains (Kusama AssetHub, Westend AssetHub, Paseo AssetHub) as staking has migrated there. This action registers your intention to stake with specific validators and is essential for earning staking rewards. The maximum number of nominators varies by network.",
   inputSchema: z.object({
     network: z.string().describe("The name of active network/chain."),
     controllerAccount: z
@@ -176,8 +281,9 @@ export const nominateAgent = tool({
   }),
   // eslint-disable-next-line @typescript-eslint/require-await
   execute: async ({ controllerAccount, targets, tokenSymbol, network }) => {
-    const chain = SYMBOL_TO_RELAY_CHAIN[tokenSymbol];
+    const relayChain = SYMBOL_TO_RELAY_CHAIN[tokenSymbol];
     const maxValidators = MAX_NOMINATIONS[tokenSymbol] || 16;
+    const normalizedNetwork = network.trim().toLowerCase();
 
     if (!controllerAccount) {
       return {
@@ -204,23 +310,27 @@ export const nominateAgent = tool({
       };
     }
 
-    if (
-      chain !== network &&
-      ["polkadot", "kusama", "westend", "paseo"].includes(network.toLowerCase())
-    ) {
-      return {
-        message: `${network} is a relay chain and cannot be used for staking ${tokenSymbol}.`,
-      };
-    }
-    if (
-      chain !== network &&
-      !["polkadot", "kusama", "westend", "paseo"].includes(
-        network.toLowerCase(),
-      )
-    ) {
-      return {
-        message: `${network} is a system chain and cannot be used for staking ${tokenSymbol}.`,
-      };
+    // Check if user is on the correct chain for staking
+    // Polkadot: staking is still on relay chain
+    // Others (Kusama, Westend, Paseo): staking has migrated to AssetHub
+    if (tokenSymbol === "DOT") {
+      if (normalizedNetwork !== "polkadot") {
+        return {
+          message: `Staking for ${tokenSymbol} is only available on Polkadot relay chain. Your current network is ${network}. Please switch to Polkadot to nominate validators.`,
+        };
+      }
+    } else {
+      // For all other chains, staking is on AssetHub
+      const assetHubName = `${relayChain} AssetHub`.toLowerCase();
+      if (
+        normalizedNetwork !== assetHubName &&
+        normalizedNetwork !== "westend assethub" &&
+        normalizedNetwork !== "paseo assethub"
+      ) {
+        return {
+          message: `Staking for ${tokenSymbol} is only available on ${relayChain} AssetHub. Your current network is ${network}. Please switch to ${relayChain} AssetHub to nominate validators.`,
+        };
+      }
     }
 
     return {
@@ -238,7 +348,7 @@ export const nominateAgent = tool({
 export const unbondAgent = tool({
   name: "unbondAgent",
   description:
-    "Unbond a specific amount of tokens that were previously bonded for staking on a network within the Polkadot ecosystem (e.g., Polkadot, Kusama, Westend, Paseo). These funds will become available for withdrawal after a network-specific unbonding period.",
+    "Unbond a specific amount of tokens that were previously bonded for staking on a network within the Polkadot ecosystem. IMPORTANT: Staking locations - Polkadot: Use Polkadot relay chain. Kusama/Westend/Paseo: Use their respective AssetHub chains (Kusama AssetHub, Westend AssetHub, Paseo AssetHub) as staking has migrated there. These funds will become available for withdrawal after a network-specific unbonding period.",
   inputSchema: z.object({
     controllerAccount: z
       .string()
@@ -269,8 +379,9 @@ export const unbondAgent = tool({
   }),
   // eslint-disable-next-line @typescript-eslint/require-await
   execute: async ({ controllerAccount, value, tokenSymbol, network }) => {
-    const chain = SYMBOL_TO_RELAY_CHAIN[tokenSymbol];
+    const relayChain = SYMBOL_TO_RELAY_CHAIN[tokenSymbol];
     const unbondingDays = UNBONDING_PERIOD_DAYS_MAP[tokenSymbol] || 28;
+    const normalizedNetwork = network.trim().toLowerCase();
 
     if (value <= 0) {
       return {
@@ -290,23 +401,27 @@ export const unbondAgent = tool({
       };
     }
 
-    if (
-      chain !== network &&
-      ["polkadot", "kusama", "westend", "paseo"].includes(network.toLowerCase())
-    ) {
-      return {
-        message: `${network} is a relay chain and cannot be used for staking ${tokenSymbol}.`,
-      };
-    }
-    if (
-      chain !== network &&
-      !["polkadot", "kusama", "westend", "paseo"].includes(
-        network.toLowerCase(),
-      )
-    ) {
-      return {
-        message: `${network} is a system chain and cannot be used for staking ${tokenSymbol}.`,
-      };
+    // Check if user is on the correct chain for staking
+    // Polkadot: staking is still on relay chain
+    // Others (Kusama, Westend, Paseo): staking has migrated to AssetHub
+    if (tokenSymbol === "DOT") {
+      if (normalizedNetwork !== "polkadot") {
+        return {
+          message: `Staking for ${tokenSymbol} is only available on Polkadot relay chain. Your current network is ${network}. Please switch to Polkadot to unbond tokens.`,
+        };
+      }
+    } else {
+      // For all other chains, staking is on AssetHub
+      const assetHubName = `${relayChain} AssetHub`.toLowerCase();
+      if (
+        normalizedNetwork !== assetHubName &&
+        normalizedNetwork !== "westend assethub" &&
+        normalizedNetwork !== "paseo assethub"
+      ) {
+        return {
+          message: `Staking for ${tokenSymbol} is only available on ${relayChain} AssetHub. Your current network is ${network}. Please switch to ${relayChain} AssetHub to unbond tokens.`,
+        };
+      }
     }
 
     return {

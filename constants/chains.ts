@@ -89,18 +89,18 @@ export const WND_TELEPORT_ROUTES = {
 };
 
 export const PAS_TELEPORT_ROUTES = {
-  "Paseo AssetHub": ["Paseo", "Paseo BridgeHub", "PAssetHub"],
+  "Paseo AssetHub": ["Paseo", "Paseo BridgeHub"],
   Paseo: [
     "Paseo AssetHub",
     "Paseo BridgeHub",
-    "PAssetHub",
     "Paseo Coretime",
     "Paseo People",
   ],
   "Paseo BridgeHub": ["Paseo", "Paseo AssetHub"],
   "Paseo Coretime": ["Paseo"],
   "Paseo People": ["Paseo"],
-  PAssetHub: ["Paseo", "Paseo AssetHub"],
+  // PAssetHub teleport is temporarily disabled
+  // PAssetHub: ["Paseo", "Paseo AssetHub"],
 };
 
 export const DOT_TELEPORT_ROUTES = {

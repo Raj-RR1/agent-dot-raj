@@ -9,7 +9,7 @@ import z from "zod";
 
 export const joinNominationPoolsAgent = tool({
   description:
-    "Join an existing nomination pool on a network within the Polkadot ecosystem (e.g., Polkadot, Kusama, Westend, Paseo) by bonding a specified amount of tokens. You will receive staking rewards proportionally from the pool. Note: You can only be a member of one pool at a time. A network-specific minimum bond amount is required to join a pool, and you need to ensure your account maintains its existential deposit plus transaction fees.",
+    "Join an existing nomination pool on a network within the Polkadot ecosystem. IMPORTANT: Nomination pools locations - Polkadot: Use Polkadot relay chain. Kusama/Westend/Paseo: Use their respective AssetHub chains (Kusama AssetHub, Westend AssetHub, Paseo AssetHub) as nomination pools have migrated there. You will receive staking rewards proportionally from the pool. Note: You can only be a member of one pool at a time. A network-specific minimum bond amount is required to join a pool, and you need to ensure your account maintains its existential deposit plus transaction fees.",
   inputSchema: z.object({
     network: z.string().describe("The name of the active network/chain."),
     senderAddress: z
@@ -49,12 +49,13 @@ export const joinNominationPoolsAgent = tool({
 
   // eslint-disable-next-line @typescript-eslint/require-await
   execute: async ({ senderAddress, amount, poolId, tokenSymbol, network }) => {
-    const chain = SYMBOL_TO_RELAY_CHAIN[tokenSymbol];
+    const relayChain = SYMBOL_TO_RELAY_CHAIN[tokenSymbol];
     const minBondAmount = MIN_POOL_BOND_AMOUNT[tokenSymbol] || 1;
+    const normalizedNetwork = network.trim().toLowerCase();
 
     if (amount < minBondAmount) {
       return {
-        message: `The minimum bond amount for joining a pool on ${chain} is ${minBondAmount.toFixed(2)} ${tokenSymbol}.`,
+        message: `The minimum bond amount for joining a pool is ${minBondAmount.toFixed(2)} ${tokenSymbol}.`,
       };
     }
 
@@ -64,23 +65,27 @@ export const joinNominationPoolsAgent = tool({
       };
     }
 
-    if (
-      chain !== network &&
-      ["polkadot", "kusama", "westend", "paseo"].includes(network.toLowerCase())
-    ) {
-      return {
-        message: `${network} is a relay chain and cannot be used for staking ${tokenSymbol}.`,
-      };
-    }
-    if (
-      chain !== network &&
-      !["polkadot", "kusama", "westend", "paseo"].includes(
-        network.toLowerCase(),
-      )
-    ) {
-      return {
-        message: `${network} is a system chain and cannot be used for staking ${tokenSymbol}.`,
-      };
+    // Check if user is on the correct chain for nomination pools
+    // Polkadot: nomination pools are still on relay chain
+    // Others (Kusama, Westend, Paseo): nomination pools have migrated to AssetHub
+    if (tokenSymbol === "DOT") {
+      if (normalizedNetwork !== "polkadot") {
+        return {
+          message: `Nomination pools for ${tokenSymbol} are only available on Polkadot relay chain. Your current network is ${network}. Please switch to Polkadot to join a nomination pool.`,
+        };
+      }
+    } else {
+      // For all other chains, nomination pools are on AssetHub
+      const assetHubName = `${relayChain} AssetHub`.toLowerCase();
+      if (
+        normalizedNetwork !== assetHubName &&
+        normalizedNetwork !== "westend assethub" &&
+        normalizedNetwork !== "paseo assethub"
+      ) {
+        return {
+          message: `Nomination pools for ${tokenSymbol} are only available on ${relayChain} AssetHub. Your current network is ${network}. Please switch to ${relayChain} AssetHub to join a nomination pool.`,
+        };
+      }
     }
 
     return {
@@ -128,7 +133,7 @@ const bondExtraParamSchema = z
 
 export const bondExtraNominationPoolsAgent = tool({
   description:
-    "Add more tokens to your existing bonded stake in a nomination pool on a network within the Polkadot ecosystem (e.g., Polkadot, Kusama, Westend, Paseo). You can either bond additional tokens from your account's free balance or re-stake your accumulated (unclaimed) rewards.",
+    "Add more tokens to your existing bonded stake in a nomination pool on a network within the Polkadot ecosystem. IMPORTANT: Nomination pools locations - Polkadot: Use Polkadot relay chain. Kusama/Westend/Paseo: Use their respective AssetHub chains (Kusama AssetHub, Westend AssetHub, Paseo AssetHub) as nomination pools have migrated there. You can either bond additional tokens from your account's free balance or re-stake your accumulated (unclaimed) rewards.",
   inputSchema: z.object({
     network: z.string().describe("The name of the active network/chain."),
     memberAddress: z
@@ -152,25 +157,30 @@ export const bondExtraNominationPoolsAgent = tool({
 
   // eslint-disable-next-line @typescript-eslint/require-await
   execute: async ({ memberAddress, extra, tokenSymbol, network }) => {
-    const chain = SYMBOL_TO_RELAY_CHAIN[tokenSymbol];
+    const relayChain = SYMBOL_TO_RELAY_CHAIN[tokenSymbol];
+    const normalizedNetwork = network.trim().toLowerCase();
 
-    if (
-      chain !== network &&
-      ["polkadot", "kusama", "westend", "paseo"].includes(network.toLowerCase())
-    ) {
-      return {
-        message: `${network} is a relay chain and cannot be used for staking ${tokenSymbol}.`,
-      };
-    }
-    if (
-      chain !== network &&
-      !["polkadot", "kusama", "westend", "paseo"].includes(
-        network.toLowerCase(),
-      )
-    ) {
-      return {
-        message: `${network} is a system chain and cannot be used for staking ${tokenSymbol}.`,
-      };
+    // Check if user is on the correct chain for nomination pools
+    // Polkadot: nomination pools are still on relay chain
+    // Others (Kusama, Westend, Paseo): nomination pools have migrated to AssetHub
+    if (tokenSymbol === "DOT") {
+      if (normalizedNetwork !== "polkadot") {
+        return {
+          message: `Nomination pools for ${tokenSymbol} are only available on Polkadot relay chain. Your current network is ${network}. Please switch to Polkadot to bond extra to a nomination pool.`,
+        };
+      }
+    } else {
+      // For all other chains, nomination pools are on AssetHub
+      const assetHubName = `${relayChain} AssetHub`.toLowerCase();
+      if (
+        normalizedNetwork !== assetHubName &&
+        normalizedNetwork !== "westend assethub" &&
+        normalizedNetwork !== "paseo assethub"
+      ) {
+        return {
+          message: `Nomination pools for ${tokenSymbol} are only available on ${relayChain} AssetHub. Your current network is ${network}. Please switch to ${relayChain} AssetHub to bond extra to a nomination pool.`,
+        };
+      }
     }
 
     if (extra.type === "FreeBalance" && extra.amount) {
@@ -208,7 +218,7 @@ export const bondExtraNominationPoolsAgent = tool({
 
 export const unbondFromNominationPoolsAgent = tool({
   description:
-    "Initiate the unbonding process for a specified amount of tokens (referred to as 'unbonding points') from a nomination pool you are currently a member of, on a network within the Polkadot ecosystem (e.g., Polkadot, Kusama, Westend, Paseo). The unbonded funds will become available for withdrawal after a network-specific unbonding period.",
+    "Initiate the unbonding process for a specified amount of tokens (referred to as 'unbonding points') from a nomination pool you are currently a member of, on a network within the Polkadot ecosystem. IMPORTANT: Nomination pools locations - Polkadot: Use Polkadot relay chain. Kusama/Westend/Paseo: Use their respective AssetHub chains (Kusama AssetHub, Westend AssetHub, Paseo AssetHub) as nomination pools have migrated there. The unbonded funds will become available for withdrawal after a network-specific unbonding period.",
   inputSchema: z.object({
     network: z.string().describe("The name of the active network/chain."),
     memberAddress: z
@@ -241,25 +251,31 @@ export const unbondFromNominationPoolsAgent = tool({
 
   // eslint-disable-next-line @typescript-eslint/require-await
   execute: async ({ memberAddress, unbondingPoints, tokenSymbol, network }) => {
-    const chain = SYMBOL_TO_RELAY_CHAIN[tokenSymbol];
+    const relayChain = SYMBOL_TO_RELAY_CHAIN[tokenSymbol];
     const unbondingDays = UNBONDING_PERIOD_DAYS_MAP[tokenSymbol] || 28;
-    if (
-      chain !== network &&
-      ["polkadot", "kusama", "westend", "paseo"].includes(network.toLowerCase())
-    ) {
-      return {
-        message: `${network} is a relay chain and cannot be used for staking ${tokenSymbol}.`,
-      };
-    }
-    if (
-      chain !== network &&
-      !["polkadot", "kusama", "westend", "paseo"].includes(
-        network.toLowerCase(),
-      )
-    ) {
-      return {
-        message: `${network} is a system chain and cannot be used for staking ${tokenSymbol}.`,
-      };
+    const normalizedNetwork = network.trim().toLowerCase();
+
+    // Check if user is on the correct chain for nomination pools
+    // Polkadot: nomination pools are still on relay chain
+    // Others (Kusama, Westend, Paseo): nomination pools have migrated to AssetHub
+    if (tokenSymbol === "DOT") {
+      if (normalizedNetwork !== "polkadot") {
+        return {
+          message: `Nomination pools for ${tokenSymbol} are only available on Polkadot relay chain. Your current network is ${network}. Please switch to Polkadot to unbond from a nomination pool.`,
+        };
+      }
+    } else {
+      // For all other chains, nomination pools are on AssetHub
+      const assetHubName = `${relayChain} AssetHub`.toLowerCase();
+      if (
+        normalizedNetwork !== assetHubName &&
+        normalizedNetwork !== "westend assethub" &&
+        normalizedNetwork !== "paseo assethub"
+      ) {
+        return {
+          message: `Nomination pools for ${tokenSymbol} are only available on ${relayChain} AssetHub. Your current network is ${network}. Please switch to ${relayChain} AssetHub to unbond from a nomination pool.`,
+        };
+      }
     }
 
     if (unbondingPoints <= 0) {
