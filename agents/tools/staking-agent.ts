@@ -435,3 +435,22 @@ export const unbondAgent = tool({
     };
   },
 });
+
+export const getBondedAmountAgent = tool({
+  name: "getBondedAmountAgent",
+  description:
+    "Get the current bonded staking amount for a controller account on the active network. This returns the stash account, total bonded amount, and active bonded amount. IMPORTANT: Staking locations - Polkadot: Use Polkadot relay chain. Kusama/Westend/Paseo: Use their respective AssetHub chains as staking has migrated there.",
+  inputSchema: z.object({
+    controllerAccount: z
+      .string()
+      .describe("The controller account address to query bonded amount for."),
+    network: z.string().describe("The name of the active network/chain."),
+    tokenSymbol: z
+      .enum(["DOT", "KSM", "WND", "PAS"])
+      .optional()
+      .default("DOT")
+      .describe(
+        "The token symbol of the network (e.g., 'DOT', 'KSM', 'WND', 'PAS').",
+      ),
+  }),
+});

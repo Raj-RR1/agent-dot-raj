@@ -21,6 +21,7 @@ export {
   bondAgent,
   bondExtraAgent,
   getAvailableValidators,
+  getBondedAmountAgent,
   nominateAgent,
   unbondAgent,
 } from "@/agents/tools/staking-agent";

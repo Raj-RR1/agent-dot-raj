@@ -125,10 +125,6 @@ export function useStaking() {
           toast.error(`Failed to bond: ${errorMessage}`, {
             id: toastId,
           });
-
-          void sendMessage({
-            text: `Failed to bond: ${errorMessage}`,
-          });
         }
       }
     },
@@ -200,10 +196,6 @@ export function useStaking() {
             e instanceof Error ? e.message : "An unknown error occurred.";
           toast.error(`Failed to unbond: ${errorMessage}`, {
             id: toastId,
-          });
-
-          void sendMessage({
-            text: `Failed to unbond: ${errorMessage}`,
           });
         }
       }
@@ -277,10 +269,6 @@ export function useStaking() {
           toast.error(`Failed to bond extra: ${errorMessage}`, {
             id: toastId,
           });
-
-          void sendMessage({
-            text: `Failed to bond extra: ${errorMessage}`,
-          });
         }
       }
     },
@@ -346,10 +334,6 @@ export function useStaking() {
             e instanceof Error ? e.message : "An unknown error occurred.";
           toast.error(`Failed to nominate: ${errorMessage}`, {
             id: toastId,
-          });
-
-          void sendMessage({
-            text: `Failed to nominate: ${errorMessage}`,
           });
         }
       }

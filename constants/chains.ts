@@ -93,14 +93,15 @@ export const PAS_TELEPORT_ROUTES = {
   Paseo: [
     "Paseo AssetHub",
     "Paseo BridgeHub",
+    "PAssetHub",
     "Paseo Coretime",
     "Paseo People",
   ],
   "Paseo BridgeHub": ["Paseo", "Paseo AssetHub"],
   "Paseo Coretime": ["Paseo"],
   "Paseo People": ["Paseo"],
-  // PAssetHub teleport is temporarily disabled
-  // PAssetHub: ["Paseo", "Paseo AssetHub"],
+  // PAssetHub can only teleport to Paseo relay chain, not to Paseo AssetHub (temporarily disabled path)
+  PAssetHub: ["Paseo"],
 };
 
 export const DOT_TELEPORT_ROUTES = {

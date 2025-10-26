@@ -3,6 +3,7 @@ import {
   getAccountBalance,
   getSessionValidators,
   matchInjectedAccount,
+  StakingDescriptors,
 } from "@/lib/polkadot-api";
 import { chainConfig } from "@/papi-config";
 import {
@@ -209,5 +210,58 @@ export async function onChatToolCall({
       toolCallId: toolCall.toolCallId,
       output: JSON.stringify(val_addrs),
     });
+  }
+
+  if (toolCall.toolName === "getBondedAmountAgent") {
+    const input = toolCall.input as { controllerAccount: SS58String };
+
+    try {
+      const descriptors = activeChainRef.current
+        .descriptors as StakingDescriptors;
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const api = clientRef.current!.getTypedApi(descriptors);
+
+      const ledger = await api.query.Staking.Ledger.getValue(
+        input.controllerAccount,
+      );
+
+      if (!ledger) {
+        addToolResult({
+          tool: toolCall.toolName,
+          toolCallId: toolCall.toolCallId,
+          output: {
+            error: `No bonded stake found for controller account ${input.controllerAccount}. This account may not be a controller for any staking account.`,
+          },
+        });
+        return;
+      }
+
+      const tokenDecimals =
+        activeChainRef.current.chainSpec.properties.tokenDecimals;
+      const tokenSymbol =
+        activeChainRef.current.chainSpec.properties.tokenSymbol;
+      const totalBonded = Number(ledger.total) / Math.pow(10, tokenDecimals);
+      const activeBonded = Number(ledger.active) / Math.pow(10, tokenDecimals);
+      const stashAccount = ledger.stash;
+
+      addToolResult({
+        tool: toolCall.toolName,
+        toolCallId: toolCall.toolCallId,
+        output: {
+          stashAccount,
+          totalBonded: `${totalBonded.toFixed(2)} ${tokenSymbol}`,
+          activeBonded: `${activeBonded.toFixed(2)} ${tokenSymbol}`,
+          tokenSymbol,
+        },
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error occurred";
+      addToolResult({
+        tool: toolCall.toolName,
+        toolCallId: toolCall.toolCallId,
+        output: { error: `Failed to query bonded amount: ${errorMessage}` },
+      });
+    }
   }
 }

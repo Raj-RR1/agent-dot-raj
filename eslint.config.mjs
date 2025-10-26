@@ -1,13 +1,13 @@
 // @ts-check
 
-import nextPlugin from "@next/eslint-plugin-next";
 import js from "@eslint/js";
+import nextPlugin from "@next/eslint-plugin-next";
 import prettierConfig from "eslint-config-prettier";
 import prettierPlugin from "eslint-plugin-prettier";
 import reactPlugin from "eslint-plugin-react";
 import hooksPlugin from "eslint-plugin-react-hooks";
-import tseslint from "typescript-eslint";
 import globals from "globals";
+import tseslint from "typescript-eslint";
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
@@ -21,6 +21,7 @@ export default tseslint.config(
       "next-env.d.ts",
       ".papi/**",
       "scripts/dist/**",
+      "scripts/*.cjs",
     ],
   },
   {

@@ -1,7 +1,10 @@
+# Detect package manager
+PM=$(sh .husky/detect-pm.sh)
+
 # 🔍 Run lint-staged
 echo ""
 echo "🔍 Running lint-staged..."
-bun lint-staged
+$PM lint-staged
 
 if [ $? -ne 0 ]; then
   echo "❌ lint-staged failed. Fix the issues before committing."
@@ -13,7 +16,7 @@ fi
 # 🚨 Run ESLint in production mode
 echo ""
 echo "🚨 Running production lint (ESLint)..."
-bun lint:prod
+$PM lint:prod
 
 if [ $? -ne 0 ]; then
   echo "❌ ESLint failed in production mode. Please fix lint errors."
@@ -25,7 +28,7 @@ fi
 # 🛠️  TypeScript type check
 echo ""
 echo "🛠️  Running TypeScript type check..."
-bun tsc
+$PM tsc
 
 if [ $? -ne 0 ]; then
   echo "❌ TypeScript type check failed. Fix type errors before committing."
@@ -37,7 +40,7 @@ fi
 # 🏗️  Build project
 echo ""
 echo "🏗️  Building project..."
-bun run build
+$PM run build
 
 if [ $? -ne 0 ]; then
   echo "❌ Build failed. Fix build errors before committing."

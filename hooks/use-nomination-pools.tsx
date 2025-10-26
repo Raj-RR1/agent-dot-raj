@@ -83,9 +83,6 @@ export function useNominationPools() {
           toast.error(`Failed to join Nomination Pool: ${err.message}`, {
             id: toastId,
           });
-          void sendMessage({
-            text: `Failed to join Nomination Pool: ${err.message}`,
-          });
         }
       }
     },
@@ -192,9 +189,6 @@ export function useNominationPools() {
               id: toastId,
             },
           );
-          void sendMessage({
-            text: `Failed to bond extra to Nomination Pool: ${err.message}`,
-          });
         }
       }
     },
@@ -269,9 +263,6 @@ export function useNominationPools() {
           const err = error as Error;
           toast.error(`Failed to unbond from Nomination Pool: ${err.message}`, {
             id: toastId,
-          });
-          void sendMessage({
-            text: `Failed to unbond from Nomination Pool: ${err.message}`,
           });
         }
       }

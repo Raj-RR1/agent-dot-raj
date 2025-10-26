@@ -1,7 +1,13 @@
 import { formatBalance } from "@/lib/utils";
 import { AvailableApis, ChainConfig } from "@/papi-config";
 import { ActiveChainRef, ClientRef } from "@/types";
-import { dot, pas, wnd } from "@polkadot-api/descriptors";
+import {
+  dot,
+  pas,
+  pas_asset_hub,
+  wnd,
+  wnd_asset_hub,
+} from "@polkadot-api/descriptors";
 import { SS58String } from "polkadot-api";
 import { InjectedExtension } from "polkadot-api/pjs-signer";
 import { RefObject } from "react";
@@ -46,7 +52,12 @@ export function matchInjectedAccount(
   );
 }
 
-export type StakingDescriptors = typeof dot | typeof pas | typeof wnd;
+export type StakingDescriptors =
+  | typeof dot
+  | typeof pas
+  | typeof wnd
+  | typeof pas_asset_hub
+  | typeof wnd_asset_hub;
 
 export async function getSessionValidators({
   client,

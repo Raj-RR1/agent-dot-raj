@@ -66,17 +66,15 @@ const xcmAgent = tool({
         };
       }
 
-      // Block teleport transactions from PAssetHub (Paseo Asset Hub)
-      if (srcNodeName === "AssetHubPaseo" || srcNodeName === "PAssetHub") {
-        return {
-          message: `Teleport transactions from ${src} are currently not supported. Please use a different source chain.`,
-        };
-      }
+      // Block the specific teleport path between PAssetHub and Paseo AssetHub (both directions)
+      const isPAssetHubToPaseoAssetHub =
+        (srcNodeName === "PAssetHub" && dstNodeName === "AssetHubPaseo") ||
+        (srcNodeName === "AssetHubPaseo" && dstNodeName === "PAssetHub");
 
-      // Block teleport transactions to PAssetHub (Paseo Asset Hub)
-      if (dstNodeName === "AssetHubPaseo" || dstNodeName === "PAssetHub") {
+      if (isPAssetHubToPaseoAssetHub) {
         return {
-          message: `Teleport transactions to ${dst} are currently not supported. Please use a different destination chain.`,
+          message:
+            "Teleport transactions between PAssetHub and Paseo AssetHub are currently not supported. You can teleport between PAssetHub and Paseo relay chain instead.",
         };
       }
 
