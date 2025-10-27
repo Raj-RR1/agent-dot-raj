@@ -2,23 +2,21 @@
 import {
   getAccountBalance,
   getSessionValidators,
-  matchInjectedAccount,
   StakingDescriptors,
 } from "@/lib/polkadot-api";
-import { chainConfig } from "@/papi-config";
+import { ChainConfig, chainConfig } from "@/papi-config";
 import {
   ActiveChainRef,
   ApiRef,
   ClientRef,
   ConnectedAccountsRef,
   SelectedAccountRef,
-  SelectedExtensionsRef,
-  SetActiveChainRef,
   SetActiveRpcChainRef,
   SetSelectedAccountRef,
 } from "@/types";
 import { UIMessage, UseChatHelpers } from "@ai-sdk/react";
 import { SS58String } from "polkadot-api";
+import { RefObject } from "react";
 
 export async function onChatToolCall({
   apiRef,
@@ -27,7 +25,6 @@ export async function onChatToolCall({
   connectedAccountsRef,
   selectedAccountRef,
   setSelectedAccountRef,
-  selectedExtensionsRef,
   clientRef,
   assetHubClientRef,
   setActiveRpcChainRef,
@@ -36,11 +33,10 @@ export async function onChatToolCall({
 }: {
   apiRef: ApiRef;
   activeChainRef: ActiveChainRef;
-  setActiveChainRef: SetActiveChainRef;
+  setActiveChainRef: RefObject<(chain: ChainConfig) => void>;
   connectedAccountsRef: ConnectedAccountsRef;
   selectedAccountRef: SelectedAccountRef;
   setSelectedAccountRef: SetSelectedAccountRef;
-  selectedExtensionsRef: SelectedExtensionsRef;
   clientRef: ClientRef;
   assetHubClientRef: ClientRef;
   setActiveRpcChainRef: SetActiveRpcChainRef;
@@ -98,10 +94,13 @@ export async function onChatToolCall({
       name: string;
     };
 
-    const newAccount = matchInjectedAccount(account, selectedExtensionsRef);
+    // Find account in connected accounts
+    const foundAccount = connectedAccountsRef.current.find(
+      (acc) => acc.address === account.address,
+    );
 
-    if (newAccount) {
-      setSelectedAccountRef.current(newAccount.acc, newAccount.ext);
+    if (foundAccount) {
+      setSelectedAccountRef.current(foundAccount);
       addToolResult({
         tool: toolCall.toolName,
         toolCallId: toolCall.toolCallId,
@@ -160,7 +159,7 @@ export async function onChatToolCall({
       });
     }
     if (network) {
-      void setActiveChainRef.current(network);
+      setActiveChainRef.current(network);
       setActiveRpcChainRef.current(network);
       addToolResult({
         tool: toolCall.toolName,

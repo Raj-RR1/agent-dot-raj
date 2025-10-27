@@ -1,18 +1,24 @@
 "use client";
 
+/* eslint-disable @typescript-eslint/no-unnecessary-condition */
+
 import { StakingDescriptors } from "@/lib/polkadot-api";
 import { convertAmountToPlancks } from "@/lib/utils";
-import { ExtensionContext } from "@/providers/extension-provider";
-import { useRpcApi } from "@/providers/rpc-api-provider";
+import { useWallet } from "@/providers/wallet-provider";
+import { useClient, useChainId } from "@reactive-dot/react";
+import { chainConfig } from "@/papi-config";
 import { UseChatHelpers } from "@ai-sdk/react";
 import { MultiAddress } from "@polkadot-api/descriptors";
 import { UIMessage } from "ai";
-import { use, useCallback } from "react";
+import { useCallback } from "react";
 import { toast } from "sonner";
 
 export function useNominationPools() {
-  const { client, activeChain } = useRpcApi();
-  const { selectedAccount } = use(ExtensionContext);
+  const client = useClient();
+  const chainId = useChainId();
+  const activeChain =
+    chainConfig.find((chain) => chain.key === chainId) ?? chainConfig[0];
+  const { selectedAccount } = useWallet();
 
   const join = useCallback(
     async ({
