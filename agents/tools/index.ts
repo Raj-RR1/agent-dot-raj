@@ -1,5 +1,6 @@
 export {
   getActiveAccount,
+  getActiveNameAndBalance,
   getActiveNetwork,
   getAvailableNetworks,
   getBalances,

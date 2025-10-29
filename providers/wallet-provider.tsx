@@ -75,6 +75,8 @@ function WalletProviderInner({
   const [selectedAccount, setSelectedAccountState] =
     useState<WalletAccount | null>(null);
   const [isWalletOpen, setIsWalletOpen] = useState(false);
+  const [rpcStuck, setRpcStuck] = useState(false);
+  const [rpcRetryKey, setRpcRetryKey] = useState(0);
 
   // Convert @reactive-dot accounts to our WalletAccount format
   // Memoize to prevent infinite loops in useEffect
@@ -159,6 +161,18 @@ function WalletProviderInner({
     [onChainSwitch],
   );
 
+  // Detect potentially stuck RPC (simple timeout heuristic)
+  useEffect(() => {
+    setRpcStuck(false);
+    const timeout = setTimeout(() => {
+      setRpcStuck(true);
+    }, 20000);
+
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [chainId, rpcRetryKey]);
+
   return (
     <WalletContext.Provider
       value={{
@@ -184,7 +198,42 @@ function WalletProviderInner({
           </div>
         </div>
       ) : (
-        children
+        <>
+          {rpcStuck && (
+            <div className="bg-background/80 pointer-events-auto fixed inset-0 z-50 flex items-center justify-center p-4">
+              <div className="bg-background border-border w-full max-w-sm rounded-xl border p-5 shadow-lg">
+                <div className="mb-2 text-lg font-semibold">
+                  RPC not responding
+                </div>
+                <p className="text-muted-foreground mb-4 text-sm">
+                  The current network appears to be taking too long to load. You
+                  can retry, or switch to Polkadot.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center justify-center rounded-md px-3 text-sm font-medium"
+                    onClick={() => {
+                      switchChain("polkadot");
+                      setRpcStuck(false);
+                    }}
+                  >
+                    Switch to Polkadot
+                  </button>
+                  <button
+                    className="border-input hover:bg-accent hover:text-accent-foreground inline-flex h-9 items-center justify-center rounded-md border bg-transparent px-3 text-sm"
+                    onClick={() => {
+                      setRpcStuck(false);
+                      setRpcRetryKey((k) => k + 1);
+                    }}
+                  >
+                    Retry
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          {children}
+        </>
       )}
     </WalletContext.Provider>
   );

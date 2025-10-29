@@ -4,6 +4,7 @@ import {
   bondExtraAgent,
   bondExtraNominationPoolsAgent,
   getActiveAccount,
+  getActiveNameAndBalance,
   getActiveNetwork,
   getAvailableNetworks,
   getAvailableValidators,
@@ -35,6 +36,7 @@ export const maxDuration = 30;
 
 const tools: ToolSet = {
   getBalances: getBalances,
+  getActiveNameAndBalance: getActiveNameAndBalance,
   getConnectedAccounts: getConnectedAccounts,
   getActiveAccount: getActiveAccount,
   setActiveAccount: setActiveAccount,

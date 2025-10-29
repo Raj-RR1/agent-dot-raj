@@ -48,9 +48,44 @@ export async function onChatToolCall({
   addToolResult: UseChatHelpers<UIMessage>["addToolResult"];
 }) {
   if (toolCall.toolName === "getBalances") {
-    const account = toolCall.input as { address: SS58String };
+    const input = toolCall.input as { address?: SS58String; network?: string };
+
+    // Prefer the currently selected account from UI if present.
+    // This ensures manual account switches are respected even if a stale address was passed.
+    const activeAddress = selectedAccountRef.current?.address;
+    const address = activeAddress ?? input.address;
+    if (!address) {
+      addToolResult({
+        tool: toolCall.toolName,
+        toolCallId: toolCall.toolCallId,
+        output: "No account selected. Please connect a wallet first.",
+      });
+      return;
+    }
+
+    const balance = await getAccountBalance(address, apiRef, activeChainRef);
+
+    addToolResult({
+      tool: toolCall.toolName,
+      toolCallId: toolCall.toolCallId,
+      output: balance,
+    });
+  }
+
+  if (toolCall.toolName === "getActiveNameAndBalance") {
+    const active = selectedAccountRef.current;
+
+    if (!active?.address) {
+      addToolResult({
+        tool: toolCall.toolName,
+        toolCallId: toolCall.toolCallId,
+        output: "No account selected. Please connect a wallet first.",
+      });
+      return;
+    }
+
     const balance = await getAccountBalance(
-      account.address,
+      active.address,
       apiRef,
       activeChainRef,
     );
@@ -58,7 +93,11 @@ export async function onChatToolCall({
     addToolResult({
       tool: toolCall.toolName,
       toolCallId: toolCall.toolCallId,
-      output: balance,
+      output: JSON.stringify({
+        name: active.name,
+        address: active.address,
+        balance,
+      }),
     });
   }
 

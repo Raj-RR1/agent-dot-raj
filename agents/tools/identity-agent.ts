@@ -10,11 +10,24 @@ const getBalances = tool({
   inputSchema: z.object({
     address: z
       .string()
-      .describe("A SS58-encoded wallet address to read the balance from."),
+      .optional()
+      .describe(
+        "A SS58-encoded wallet address to read the balance from. If not provided, uses the active account.",
+      ),
     network: z
       .string()
-      .describe("The name of the network/chain to read the balance from."),
+      .optional()
+      .describe(
+        "The name of the network/chain to read the balance from. If not provided, uses the active network.",
+      ),
   }),
+});
+
+const getActiveNameAndBalance = tool({
+  name: "getActiveNameAndBalance",
+  description:
+    "Return the active account's name and on-chain balance on the active network/chain. Always uses the currently selected account in the UI.",
+  inputSchema: z.object({}),
 });
 
 const getConnectedAccounts = tool({
@@ -73,6 +86,7 @@ const setActiveNetwork = tool({
 
 export {
   getActiveAccount,
+  getActiveNameAndBalance,
   getActiveNetwork,
   getAvailableNetworks,
   getBalances,
