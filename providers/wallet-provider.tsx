@@ -75,8 +75,6 @@ function WalletProviderInner({
   const [selectedAccount, setSelectedAccountState] =
     useState<WalletAccount | null>(null);
   const [isWalletOpen, setIsWalletOpen] = useState(false);
-  const [rpcStuck, setRpcStuck] = useState(false);
-  const [rpcRetryKey, setRpcRetryKey] = useState(0);
 
   // Convert @reactive-dot accounts to our WalletAccount format
   // Memoize to prevent infinite loops in useEffect
@@ -91,13 +89,17 @@ function WalletProviderInner({
     [accounts],
   );
 
-  const setSelectedAccount = useCallback((account: WalletAccount) => {
+  const setSelectedAccount = useCallback((account: WalletAccount | null) => {
     setSelectedAccountState(account);
-    const stored: StoredAccount = {
-      walletId: account.wallet.id,
-      address: account.address,
-    };
-    localStorage.setItem(SELECTED_ACCOUNT_KEY, JSON.stringify(stored));
+    if (account) {
+      const stored: StoredAccount = {
+        walletId: account.wallet.id,
+        address: account.address,
+      };
+      localStorage.setItem(SELECTED_ACCOUNT_KEY, JSON.stringify(stored));
+    } else {
+      localStorage.removeItem(SELECTED_ACCOUNT_KEY);
+    }
   }, []);
 
   const handleConnectWallet = useCallback(
@@ -161,18 +163,6 @@ function WalletProviderInner({
     [onChainSwitch],
   );
 
-  // Detect potentially stuck RPC (simple timeout heuristic)
-  useEffect(() => {
-    setRpcStuck(false);
-    const timeout = setTimeout(() => {
-      setRpcStuck(true);
-    }, 20000);
-
-    return () => {
-      clearTimeout(timeout);
-    };
-  }, [chainId, rpcRetryKey]);
-
   return (
     <WalletContext.Provider
       value={{
@@ -198,50 +188,13 @@ function WalletProviderInner({
           </div>
         </div>
       ) : (
-        <>
-          {rpcStuck && (
-            <div className="bg-background/80 pointer-events-auto fixed inset-0 z-50 flex items-center justify-center p-4">
-              <div className="bg-background border-border w-full max-w-sm rounded-xl border p-5 shadow-lg">
-                <div className="mb-2 text-lg font-semibold">
-                  RPC not responding
-                </div>
-                <p className="text-muted-foreground mb-4 text-sm">
-                  The current network appears to be taking too long to load. You
-                  can retry, or switch to Polkadot.
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center justify-center rounded-md px-3 text-sm font-medium"
-                    onClick={() => {
-                      switchChain("polkadot");
-                      setRpcStuck(false);
-                    }}
-                  >
-                    Switch to Polkadot
-                  </button>
-                  <button
-                    className="border-input hover:bg-accent hover:text-accent-foreground inline-flex h-9 items-center justify-center rounded-md border bg-transparent px-3 text-sm"
-                    onClick={() => {
-                      setRpcStuck(false);
-                      setRpcRetryKey((k) => k + 1);
-                    }}
-                  >
-                    Retry
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-          {children}
-        </>
+        <>{children}</>
       )}
     </WalletContext.Provider>
   );
 }
 
 export function WalletProvider({ children }: { children: ReactNode }) {
-  const [isInitializing, setIsInitializing] = useState(true);
-
   // Restore chain from localStorage on mount
   const [activeChainId, setActiveChainId] = useState<string>(() => {
     if (typeof window !== "undefined") {
@@ -259,32 +212,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Initialize on mount
-  useEffect(() => {
-    // Small delay to allow reactive-dot to initialize
-    const timer = setTimeout(() => {
-      setIsInitializing(false);
-    }, 100);
-
-    return () => {
-      clearTimeout(timer);
-    };
-  }, []);
-
-  if (isInitializing) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="border-primary h-8 w-8 animate-spin rounded-full border-2 border-t-transparent"></div>
-          <p className="text-muted-foreground text-sm">Loading AgentDot...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <ReactiveDotProvider config={config}>
-      <ChainProvider chainId={activeChainId}>
+      <ChainProvider key={activeChainId} chainId={activeChainId}>
         <WalletProviderInner
           chainId={activeChainId}
           onChainSwitch={handleChainSwitch}

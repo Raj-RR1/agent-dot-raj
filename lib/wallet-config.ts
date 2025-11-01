@@ -10,7 +10,7 @@ export const config = defineConfig({
       {
         descriptor: chain.descriptors,
         // Use WebSocket RPC provider for each chain
-        provider: () => getWsProvider(chain.endpoints[0]),
+        provider: () => getWsProvider(chain.endpoints),
       },
     ]),
   ),

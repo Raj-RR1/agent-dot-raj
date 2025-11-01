@@ -243,7 +243,24 @@ export const getAvailableValidators = tool({
   name: "getAvailableValidators",
   description:
     "Get the list of available validators for staking on a network within the Polkadot ecosystem (e.g., Polkadot, Kusama, Westend, Paseo).",
-  inputSchema: z.object({}),
+  inputSchema: z.object({
+    network: z.string().describe("The name of the active network/chain."),
+  }),
+  // eslint-disable-next-line @typescript-eslint/require-await
+  execute: async ({ network }) => {
+    const normalizedNetwork = network.trim().toLowerCase();
+    const relayChains = ["polkadot", "westend", "paseo"];
+
+    if (!relayChains.includes(normalizedNetwork)) {
+      return {
+        message: `Fetching validators is only available on relay chains like Polkadot, Westend, or Paseo. Your current network is ${network}. Please switch to one of these networks.`,
+      };
+    }
+
+    return {
+      message: "Fetching available validators...",
+    };
+  },
 });
 
 export const nominateAgent = tool({
