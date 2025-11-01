@@ -8,7 +8,7 @@ import {
   wnd,
   wnd_asset_hub,
 } from "@polkadot-api/descriptors";
-import { SS58String } from "polkadot-api";
+import { PolkadotClient, SS58String } from "polkadot-api";
 import { InjectedExtension } from "polkadot-api/pjs-signer";
 import { RefObject } from "react";
 
@@ -65,7 +65,7 @@ export async function getSessionValidators({
   activeChain,
 }: {
   client: ClientRef;
-  assetHubClient: ClientRef;
+  assetHubClient: PolkadotClient | null;
   activeChain: ActiveChainRef;
 }) {
   if (!client.current) return [];
@@ -83,8 +83,8 @@ export async function getSessionValidators({
 
   let activeEra = await stakingApi.query.Staking.ActiveEra.getValue();
 
-  if (!activeEra?.index && assetHubClient.current) {
-    const ahApi = assetHubClient.current.getTypedApi(descriptors);
+  if (!activeEra?.index && assetHubClient) {
+    const ahApi = assetHubClient.getTypedApi(descriptors);
     const ahEra = await ahApi.query.Staking.ActiveEra.getValue();
     if (ahEra) {
       stakingApi = ahApi;

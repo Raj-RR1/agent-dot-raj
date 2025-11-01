@@ -1,3 +1,6 @@
+import { createClient } from "polkadot-api";
+import { getWsProvider } from "polkadot-api/ws-provider";
+
 /* eslint-disable @typescript-eslint/no-floating-promises */
 import {
   getAccountBalance,
@@ -26,7 +29,6 @@ export async function onChatToolCall({
   selectedAccountRef,
   setSelectedAccountRef,
   clientRef,
-  assetHubClientRef,
   setActiveRpcChainRef,
   toolCall,
   addToolResult,
@@ -38,7 +40,6 @@ export async function onChatToolCall({
   selectedAccountRef: SelectedAccountRef;
   setSelectedAccountRef: SetSelectedAccountRef;
   clientRef: ClientRef;
-  assetHubClientRef: ClientRef;
   setActiveRpcChainRef: SetActiveRpcChainRef;
   toolCall: {
     toolName: string;
@@ -221,11 +222,25 @@ export async function onChatToolCall({
   }
 
   if (toolCall.toolName === "getAvailableValidators") {
+    const assetHub = chainConfig.find(
+      (chain) => chain.key === `${activeChainRef.current.key}_asset_hub`,
+    );
+
+    let assetHubClient = null;
+    if (assetHub) {
+      const provider = getWsProvider(assetHub.endpoints);
+      assetHubClient = createClient(provider);
+    }
+
     const validators = await getSessionValidators({
       client: clientRef,
-      assetHubClient: assetHubClientRef,
+      assetHubClient: assetHubClient,
       activeChain: activeChainRef,
     });
+
+    if (assetHubClient) {
+      assetHubClient.destroy();
+    }
 
     if ("error" in validators) {
       addToolResult({
