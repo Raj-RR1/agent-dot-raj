@@ -214,7 +214,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   return (
     <ReactiveDotProvider config={config}>
-      <ChainProvider key={activeChainId} chainId={activeChainId}>
+      <ChainProvider chainId={activeChainId}>
         <WalletProviderInner
           chainId={activeChainId}
           onChainSwitch={handleChainSwitch}
