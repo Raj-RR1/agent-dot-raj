@@ -48,12 +48,81 @@ export async function onChatToolCall({
   };
   addToolResult: UseChatHelpers<UIMessage>["addToolResult"];
 }) {
+  // Before handling any tool, try to hydrate the selected account from storage
+  const hydrateSelectedFromStorage = () => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem("agent-dot:selected-account");
+      if (!raw) return;
+      const { address, name } = JSON.parse(raw) as {
+        address?: string;
+        name?: string;
+      };
+      // try to find a connected account that matches
+      let found = address
+        ? connectedAccountsRef.current.find((a) => a.address === address)
+        : undefined;
+      if (!found && name) {
+        found = connectedAccountsRef.current.find((a) => a.name === name);
+      }
+      if (found) {
+        const current = selectedAccountRef.current;
+        if (current?.address !== found.address) {
+          setSelectedAccountRef.current(found);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  hydrateSelectedFromStorage();
+  // Resolve freshest active account; prefer latest persisted selection (storage)
+  // Returns either a connected account or a lightweight { address, name } from storage
+  const resolveActiveSelection = ():
+    | { address?: string; name?: string }
+    | undefined => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = window.localStorage.getItem("agent-dot:selected-account");
+        if (raw) {
+          const { address, name } = JSON.parse(raw) as {
+            address?: string;
+            name?: string;
+          };
+          // Prefer connected match by address
+          if (address) {
+            const byAddress = connectedAccountsRef.current.find(
+              (a) => a.address === address,
+            );
+            if (byAddress)
+              return { address: byAddress.address, name: byAddress.name };
+          }
+          // Fallback match by name if available
+          if (name) {
+            const byName = connectedAccountsRef.current.find(
+              (a) => a.name === name,
+            );
+            if (byName) return { address: byName.address, name: byName.name };
+          }
+          // If not connected yet, still return stored selection for identity answers
+          if (address || name) return { address, name };
+        }
+      } catch {
+        // ignore
+      }
+    }
+    // fallback to in-memory selection
+    const mem = selectedAccountRef.current;
+    if (mem) return { address: mem.address, name: mem.name };
+    return undefined;
+  };
   if (toolCall.toolName === "getBalances") {
     const input = toolCall.input as { address?: SS58String; network?: string };
 
     // Prefer the currently selected account from UI if present.
     // This ensures manual account switches are respected even if a stale address was passed.
-    const activeAddress = selectedAccountRef.current?.address;
+    const activeAddress = resolveActiveSelection()?.address;
     const address = activeAddress ?? input.address;
     if (!address) {
       addToolResult({
@@ -74,7 +143,7 @@ export async function onChatToolCall({
   }
 
   if (toolCall.toolName === "getActiveNameAndBalance") {
-    const active = selectedAccountRef.current;
+    const active = resolveActiveSelection();
 
     if (!active?.address) {
       addToolResult({
@@ -91,14 +160,11 @@ export async function onChatToolCall({
       activeChainRef,
     );
 
+    const text = `Name: ${active.name ?? "Unknown"}\nAddress: ${active.address}\nBalance: ${balance}`;
     addToolResult({
       tool: toolCall.toolName,
       toolCallId: toolCall.toolCallId,
-      output: JSON.stringify({
-        name: active.name,
-        address: active.address,
-        balance,
-      }),
+      output: text,
     });
   }
 
@@ -116,49 +182,32 @@ export async function onChatToolCall({
   }
 
   if (toolCall.toolName === "getActiveAccount") {
-    const active = selectedAccountRef.current;
+    const active = resolveActiveSelection();
+    const text = active?.address
+      ? `Name: ${active.name ?? "Unknown"}\nAddress: ${active.address}`
+      : "No account selected. Please connect a wallet first.";
 
     addToolResult({
       tool: toolCall.toolName,
       toolCallId: toolCall.toolCallId,
-      output: JSON.stringify({
-        name: active?.name,
-        address: active?.address,
-      }),
+      output: text,
     });
   }
 
   if (toolCall.toolName === "setActiveAccount") {
-    const account = toolCall.input as {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const _account = toolCall.input as {
       address: SS58String | undefined;
       name: string;
     };
 
-    // Find account in connected accounts
-    const foundAccount = connectedAccountsRef.current.find(
-      (acc) => acc.address === account.address,
-    );
-
-    if (foundAccount) {
-      setSelectedAccountRef.current(foundAccount);
-      addToolResult({
-        tool: toolCall.toolName,
-        toolCallId: toolCall.toolCallId,
-        output: {
-          success: true,
-          message: `Set active account to ${account.name}`,
-        },
-      });
-    } else {
-      addToolResult({
-        tool: toolCall.toolName,
-        toolCallId: toolCall.toolCallId,
-        output: {
-          success: false,
-          message: `Account ${account.name} not found`,
-        },
-      });
-    }
+    // Safety: require explicit user instruction to switch; do not switch on corrections like "nope"
+    addToolResult({
+      tool: toolCall.toolName,
+      toolCallId: toolCall.toolCallId,
+      output:
+        "Switching accounts requires explicit instruction. Ask the user to pick from the side tab or say: 'switch account to <address>'.",
+    });
   }
 
   if (toolCall.toolName === "getAvailableNetworks") {
@@ -192,10 +241,7 @@ export async function onChatToolCall({
       addToolResult({
         tool: toolCall.toolName,
         toolCallId: toolCall.toolCallId,
-        output: {
-          success: false,
-          message: `Network ${input.chain} is already active`,
-        },
+        output: `Network ${input.chain} is already active`,
       });
     }
     if (network) {
@@ -204,19 +250,13 @@ export async function onChatToolCall({
       addToolResult({
         tool: toolCall.toolName,
         toolCallId: toolCall.toolCallId,
-        output: {
-          success: true,
-          message: `Set active network to ${network.name}`,
-        },
+        output: `Set active network to ${network.name}`,
       });
     } else {
       addToolResult({
         tool: toolCall.toolName,
         toolCallId: toolCall.toolCallId,
-        output: {
-          success: false,
-          message: `Network ${input.chain} not found`,
-        },
+        output: `Network ${input.chain} not found`,
       });
     }
   }
@@ -243,10 +283,14 @@ export async function onChatToolCall({
     }
 
     if ("error" in validators) {
+      const errText =
+        typeof validators.error === "string"
+          ? validators.error
+          : JSON.stringify(validators.error);
       addToolResult({
         tool: toolCall.toolName,
         toolCallId: toolCall.toolCallId,
-        output: { error: validators.error },
+        output: errText,
       });
       return;
     }
@@ -282,9 +326,7 @@ export async function onChatToolCall({
         addToolResult({
           tool: toolCall.toolName,
           toolCallId: toolCall.toolCallId,
-          output: {
-            error: `No bonded stake found for controller account ${input.controllerAccount}. This account may not be a controller for any staking account.`,
-          },
+          output: `No bonded stake found for controller account ${input.controllerAccount}. This account may not be a controller for any staking account.`,
         });
         return;
       }
@@ -300,12 +342,7 @@ export async function onChatToolCall({
       addToolResult({
         tool: toolCall.toolName,
         toolCallId: toolCall.toolCallId,
-        output: {
-          stashAccount,
-          totalBonded: `${totalBonded.toFixed(2)} ${tokenSymbol}`,
-          activeBonded: `${activeBonded.toFixed(2)} ${tokenSymbol}`,
-          tokenSymbol,
-        },
+        output: `Stash: ${stashAccount}\nTotal Bonded: ${totalBonded.toFixed(2)} ${tokenSymbol}\nActive Bonded: ${activeBonded.toFixed(2)} ${tokenSymbol}`,
       });
     } catch (error) {
       const errorMessage =
@@ -313,7 +350,7 @@ export async function onChatToolCall({
       addToolResult({
         tool: toolCall.toolName,
         toolCallId: toolCall.toolCallId,
-        output: { error: `Failed to query bonded amount: ${errorMessage}` },
+        output: `Failed to query bonded amount: ${errorMessage}`,
       });
     }
   }

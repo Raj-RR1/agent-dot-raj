@@ -4,6 +4,7 @@ import { useSyncedRef } from "@/hooks/use-sync-ref";
 import { chainConfig, type ChainConfig } from "@/papi-config";
 import { useWallet, type WalletAccount } from "@/providers/wallet-provider";
 import { useChainId, useClient, useTypedApi } from "@reactive-dot/react";
+import { useEffect, useState } from "react";
 
 export function useRefObject() {
   const client = useClient();
@@ -44,6 +45,19 @@ export function useRefObject() {
   const activeRpcChainRef = useSyncedRef<ChainConfig>(activeChain);
   const setActiveRpcChainRef =
     useSyncedRef<typeof setActiveChain>(setActiveChain);
+
+  // Force this hook to re-render immediately when side-tab selection changes
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [selectionVersion, setSelectionVersion] = useState(0);
+  useEffect(() => {
+    const handler = () => {
+      setSelectionVersion((v) => v + 1);
+    };
+    window.addEventListener("agent-dot:selected-account-changed", handler);
+    return () => {
+      window.removeEventListener("agent-dot:selected-account-changed", handler);
+    };
+  }, []);
 
   return {
     activeChainRef,

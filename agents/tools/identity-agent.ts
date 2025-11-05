@@ -6,7 +6,7 @@ import z from "zod";
 const getBalances = tool({
   name: "getBalances",
   description:
-    "Read the on-chain balance of a given polkadot-compatible wallet address on a specific network/chain (switch network/chain first). If wallet address is not specified use active account. If network/chain is not specified use active network/chain.",
+    "Read the on-chain balance of a given polkadot-compatible wallet address on a specific network/chain (switch network/chain first). If the user asks any balance-related question (e.g., 'what's my balance', 'how much do I have'), call this tool with no parameters to use the currently active account and network. If address is not specified use active account. If network/chain is not specified use active network/chain.",
   inputSchema: z.object({
     address: z
       .string()
@@ -26,7 +26,7 @@ const getBalances = tool({
 const getActiveNameAndBalance = tool({
   name: "getActiveNameAndBalance",
   description:
-    "Return the active account's name and on-chain balance on the active network/chain. Always uses the currently selected account in the UI.",
+    "Return the active account's name and on-chain balance on the active network/chain. For free-form queries like 'what is my account', 'what is my name', 'who am I', prefer calling this tool to provide an authoritative answer from the current selection.",
   inputSchema: z.object({}),
 });
 
@@ -40,7 +40,7 @@ const getConnectedAccounts = tool({
 const getActiveAccount = tool({
   name: "getActiveAccount",
   description:
-    "Get the currently active polkadot account for app interactions.",
+    "Get the currently active polkadot account for app interactions. Use for identity questions (e.g., 'what's my account/name/address'). Always fetch this before answering identity questions to avoid stale information.",
   inputSchema: z.object({}),
 });
 

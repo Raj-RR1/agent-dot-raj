@@ -18,6 +18,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -53,6 +54,7 @@ const SELECTED_CHAIN_KEY = "agent-dot:selected-chain";
 interface StoredAccount {
   walletId: string;
   address: string;
+  name?: string;
 }
 
 function WalletProviderInner({
@@ -75,6 +77,8 @@ function WalletProviderInner({
   const [selectedAccount, setSelectedAccountState] =
     useState<WalletAccount | null>(null);
   const [isWalletOpen, setIsWalletOpen] = useState(false);
+  const autoConnectAttemptedRef = useRef(false);
+  const restoreAttemptedRef = useRef(false);
 
   // Convert @reactive-dot accounts to our WalletAccount format
   // Memoize to prevent infinite loops in useEffect
@@ -95,10 +99,26 @@ function WalletProviderInner({
       const stored: StoredAccount = {
         walletId: account.wallet.id,
         address: account.address,
+        name: account.name,
       };
       localStorage.setItem(SELECTED_ACCOUNT_KEY, JSON.stringify(stored));
+      // Notify listeners (e.g., chat hook) immediately
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("agent-dot:selected-account-changed", {
+            detail: { address: account.address, name: account.name },
+          }),
+        );
+      }
     } else {
       localStorage.removeItem(SELECTED_ACCOUNT_KEY);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("agent-dot:selected-account-changed", {
+            detail: { address: undefined, name: undefined },
+          }),
+        );
+      }
     }
   }, []);
 
@@ -131,21 +151,47 @@ function WalletProviderInner({
     [disconnectWallet, selectedAccount],
   );
 
-  // Restore selected account on mount
+  // Restore selected account once accounts are available
   useEffect(() => {
+    if (restoreAttemptedRef.current) return;
     const stored = localStorage.getItem(SELECTED_ACCOUNT_KEY);
-    if (!stored || allAccounts.length === 0) {
+    // Nothing stored: finish initializing immediately
+    if (!stored) {
       setIsInitializing(false);
+      return;
+    }
+    // Wait until accounts load before attempting restore
+    if (allAccounts.length === 0) {
+      return;
+    }
+    // If user already selected something this session, don't override it
+    if (selectedAccount) {
+      setIsInitializing(false);
+      restoreAttemptedRef.current = true;
       return;
     }
 
     try {
-      const { walletId, address } = JSON.parse(stored) as StoredAccount;
-      const account = allAccounts.find(
+      const { walletId, address, name } = JSON.parse(stored) as StoredAccount;
+      // 1) Prefer exact match by wallet + address
+      let restored = allAccounts.find(
         (acc) => acc.wallet.id === walletId && acc.address === address,
       );
-      if (account) {
-        setSelectedAccountState(account);
+      // 2) If not found (e.g., SS58 prefix changed), try wallet + name
+      if (!restored && name) {
+        restored = allAccounts.find(
+          (acc) => acc.wallet.id === walletId && acc.name === name,
+        );
+      }
+      if (restored) {
+        setSelectedAccountState(restored);
+        // Normalize storage with latest values
+        const normalized: StoredAccount = {
+          walletId: restored.wallet.id,
+          address: restored.address,
+          name: restored.name,
+        };
+        localStorage.setItem(SELECTED_ACCOUNT_KEY, JSON.stringify(normalized));
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -153,8 +199,50 @@ function WalletProviderInner({
       localStorage.removeItem(SELECTED_ACCOUNT_KEY);
     } finally {
       setIsInitializing(false);
+      restoreAttemptedRef.current = true;
     }
-  }, [allAccounts]);
+  }, [allAccounts, selectedAccount]);
+
+  // Auto-connect the previously used wallet on refresh before account restore
+  useEffect(() => {
+    if (autoConnectAttemptedRef.current) return;
+    const stored = localStorage.getItem(SELECTED_ACCOUNT_KEY);
+    if (!stored) return;
+
+    try {
+      const { walletId } = JSON.parse(stored) as StoredAccount;
+      if (!walletId) return;
+
+      const isAlreadyConnected = connectedWallets.some(
+        (w) => w.id === walletId,
+      );
+      if (isAlreadyConnected) {
+        autoConnectAttemptedRef.current = true;
+        return;
+      }
+
+      const candidate = wallets.find((w) => w.id === walletId);
+      if (!candidate) return;
+
+      autoConnectAttemptedRef.current = true;
+      void handleConnectWallet(candidate);
+    } catch {
+      // ignore
+    }
+  }, [wallets, connectedWallets, handleConnectWallet]);
+
+  // Keep selected account valid; do not auto-select a new one
+  useEffect(() => {
+    if (isInitializing) return;
+    if (!selectedAccount) return;
+    const stillExists = allAccounts.some(
+      (a) => a.address === selectedAccount.address,
+    );
+    if (!stillExists) {
+      setSelectedAccountState(null);
+      localStorage.removeItem(SELECTED_ACCOUNT_KEY);
+    }
+  }, [allAccounts, selectedAccount, isInitializing]);
 
   const switchChain = useCallback(
     (newChainId: string) => {
