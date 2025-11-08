@@ -11,7 +11,7 @@ import tseslint from "typescript-eslint";
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
-export default tseslint.config(
+export default [
   {
     ignores: [
       "next.config.js",
@@ -63,4 +63,4 @@ export default tseslint.config(
       "@typescript-eslint/no-deprecated": "warn",
     },
   },
-);
+];

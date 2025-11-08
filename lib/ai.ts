@@ -1,4 +1,4 @@
-import { createClient } from "polkadot-api";
+import { createClient, PolkadotClient } from "polkadot-api";
 import { getWsProvider } from "polkadot-api/ws-provider";
 
 /* eslint-disable @typescript-eslint/no-floating-promises */
@@ -262,61 +262,148 @@ export async function onChatToolCall({
   }
 
   if (toolCall.toolName === "getAvailableValidators") {
-    const assetHub = chainConfig.find(
-      (chain) => chain.key === `${activeChainRef.current.key}_asset_hub`,
-    );
+    try {
+      if (!clientRef.current) {
+        addToolResult({
+          tool: toolCall.toolName,
+          toolCallId: toolCall.toolCallId,
+          output:
+            "Client not connected. Please ensure you are connected to a network.",
+        });
+        return;
+      }
 
-    let assetHubClient = null;
-    if (assetHub) {
-      const provider = getWsProvider(assetHub.endpoints);
-      assetHubClient = createClient(provider);
-    }
+      // Check if the current network is a relay chain
+      const relayChainKeys = ["polkadot", "westend", "paseo", "kusama"];
+      const currentChainKey = activeChainRef.current.key.toLowerCase();
 
-    const validators = await getSessionValidators({
-      client: clientRef,
-      assetHubClient: assetHubClient,
-      activeChain: activeChainRef,
-    });
+      if (!relayChainKeys.includes(currentChainKey)) {
+        addToolResult({
+          tool: toolCall.toolName,
+          toolCallId: toolCall.toolCallId,
+          output: `Fetching validators is only available on relay chains (Polkadot, Kusama, Westend, or Paseo). Your current network is ${activeChainRef.current.name}, which is not a relay chain. Please switch to a relay chain to fetch validators.`,
+        });
+        return;
+      }
 
-    if (assetHubClient) {
-      assetHubClient.destroy();
-    }
+      const assetHub = chainConfig.find(
+        (chain) => chain.key === `${activeChainRef.current.key}_asset_hub`,
+      );
 
-    if ("error" in validators) {
-      const errText =
-        typeof validators.error === "string"
-          ? validators.error
-          : JSON.stringify(validators.error);
+      let assetHubClient: PolkadotClient | null = null;
+      if (assetHub) {
+        try {
+          const provider = getWsProvider(assetHub.endpoints);
+          assetHubClient = createClient(provider);
+        } catch (error) {
+          // eslint-disable-next-line no-console
+          console.error("Failed to create assetHub client:", error);
+          // Continue without assetHub client
+        }
+      }
+
+      const validators = await getSessionValidators({
+        client: clientRef,
+        assetHubClient: assetHubClient,
+        activeChain: activeChainRef,
+      });
+
+      if (assetHubClient) {
+        assetHubClient.destroy();
+      }
+
+      if (validators.length === 0) {
+        addToolResult({
+          tool: toolCall.toolName,
+          toolCallId: toolCall.toolCallId,
+          output:
+            "No validators found for the current network. Please ensure you are connected to a relay chain (Polkadot, Kusama, Westend, or Paseo).",
+        });
+        return;
+      }
+
+      const val_addrs = validators.map((validator) => {
+        return {
+          address: validator.address,
+          staked: validator.staked,
+        };
+      });
+
+      let output = `Found ${String(val_addrs.length)} validators for ${activeChainRef.current.name} (sorted by total staked amount, descending, showing top ${String(val_addrs.length)}):\n\n| Address | Staked |\n|---|---|\n`;
+      val_addrs.forEach((v) => {
+        output += `| ${v.address} | ${v.staked} |\n`;
+      });
+
       addToolResult({
         tool: toolCall.toolName,
         toolCallId: toolCall.toolCallId,
-        output: errText,
+        output,
       });
-      return;
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("Error fetching validators:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error occurred";
+      addToolResult({
+        tool: toolCall.toolName,
+        toolCallId: toolCall.toolCallId,
+        output: `Failed to fetch validators: ${errorMessage}. Please ensure you are connected to a relay chain (Polkadot, Kusama, Westend, or Paseo).`,
+      });
     }
-
-    const val_addrs = validators.map((validator) => {
-      return {
-        address: validator.address,
-        staked: validator.staked,
-      };
-    });
-
-    addToolResult({
-      tool: toolCall.toolName,
-      toolCallId: toolCall.toolCallId,
-      output: JSON.stringify(val_addrs),
-    });
   }
 
   if (toolCall.toolName === "getBondedAmountAgent") {
-    const input = toolCall.input as { controllerAccount: SS58String };
+    const input = toolCall.input as {
+      controllerAccount: SS58String;
+      tokenSymbol?: string;
+      network?: string;
+    };
 
     try {
-      const descriptors = activeChainRef.current
-        .descriptors as StakingDescriptors;
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const api = clientRef.current!.getTypedApi(descriptors);
+      if (!clientRef.current) {
+        addToolResult({
+          tool: toolCall.toolName,
+          toolCallId: toolCall.toolCallId,
+          output:
+            "Client not connected. Please ensure you are connected to a network.",
+        });
+        return;
+      }
+
+      // Validate that user is on AssetHub for staking operations
+      const tokenSymbol =
+        input.tokenSymbol ??
+        activeChainRef.current.chainSpec.properties.tokenSymbol;
+      const normalizedNetwork = (input.network ?? activeChainRef.current.name)
+        .trim()
+        .toLowerCase();
+
+      // Import SYMBOL_TO_RELAY_CHAIN to get relay chain name
+      const { SYMBOL_TO_RELAY_CHAIN } = await import("@/constants/chains");
+      const relayChain =
+        SYMBOL_TO_RELAY_CHAIN[
+          tokenSymbol as keyof typeof SYMBOL_TO_RELAY_CHAIN
+        ];
+      const assetHubName = `${relayChain} AssetHub`.toLowerCase();
+
+      if (
+        normalizedNetwork !== assetHubName &&
+        normalizedNetwork !== "polkadot assethub" &&
+        normalizedNetwork !== "westend assethub" &&
+        normalizedNetwork !== "paseo assethub"
+      ) {
+        addToolResult({
+          tool: toolCall.toolName,
+          toolCallId: toolCall.toolCallId,
+          output: `This operation is not possible on ${activeChainRef.current.name}. Staking operations for ${tokenSymbol} are only available on ${relayChain} AssetHub. Please switch to ${relayChain} AssetHub to perform this operation.`,
+        });
+        return;
+      }
+
+      const descriptors = activeChainRef.current.descriptors;
+      const api = clientRef.current.getTypedApi(
+        descriptors as StakingDescriptors,
+      );
 
       const ledger = await api.query.Staking.Ledger.getValue(
         input.controllerAccount,
@@ -326,15 +413,13 @@ export async function onChatToolCall({
         addToolResult({
           tool: toolCall.toolName,
           toolCallId: toolCall.toolCallId,
-          output: `No bonded stake found for controller account ${input.controllerAccount}. This account may not be a controller for any staking account.`,
+          output: `No bonded stake found for controller account ${input.controllerAccount} on ${activeChainRef.current.name}. This account may not be a controller for any staking account, or you may need to check on ${relayChain} AssetHub if staking has migrated there.`,
         });
         return;
       }
 
       const tokenDecimals =
         activeChainRef.current.chainSpec.properties.tokenDecimals;
-      const tokenSymbol =
-        activeChainRef.current.chainSpec.properties.tokenSymbol;
       const totalBonded = Number(ledger.total) / Math.pow(10, tokenDecimals);
       const activeBonded = Number(ledger.active) / Math.pow(10, tokenDecimals);
       const stashAccount = ledger.stash;

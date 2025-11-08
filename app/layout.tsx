@@ -7,9 +7,8 @@ import {
   unbounded,
   workSans,
 } from "@/lib/font";
-import { Providers } from "@/providers";
+import { ClientProviders } from "@/providers/client-providers";
 import type { Metadata } from "next";
-import { Toaster } from "sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -28,13 +27,7 @@ export default function RootLayout({
       <body
         className={`${geist.variable} ${manrope.variable} ${montserrat.variable} ${outfit.variable} ${poppins.variable} ${unbounded.variable} ${workSans.variable} antialiased`}
       >
-        <Providers>{children}</Providers>
-        <Toaster
-          position="bottom-right"
-          richColors
-          duration={3000}
-          theme="dark"
-        />
+        <ClientProviders>{children}</ClientProviders>
       </body>
     </html>
   );

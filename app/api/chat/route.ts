@@ -59,23 +59,69 @@ const tools: ToolSet = {
 };
 
 export async function POST(req: Request) {
-  const { messages } = (await req.json()) as { messages: UIMessage[] };
+  try {
+    const body = (await req.json()) as { messages: UIMessage[] };
+    const { messages } = body;
 
-  const result = streamText({
-    model: openai("gpt-4o-mini"),
-    system:
-      "You are AgentDot, a friendly and expert AI assistant for the polkadot ecosystem.",
-    messages: [
+    // Validate messages array
+    if (!Array.isArray(messages)) {
+      return new Response(
+        JSON.stringify({
+          error: "Invalid request: messages must be an array",
+        }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    // Use messages directly (already validated by type assertion)
+    const validMessages = messages;
+
+    if (messages.length === 0) {
+      return new Response(
+        JSON.stringify({
+          error: "Invalid request: no valid messages found",
+        }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    const result = streamText({
+      model: openai("gpt-4o-mini"),
+      system:
+        "You are AgentDot, a friendly and expert AI assistant for the polkadot ecosystem.",
+      messages: [
+        {
+          role: "system",
+          content: prompt,
+        },
+        ...convertToModelMessages(validMessages),
+      ],
+      stopWhen: stepCountIs(3),
+      tools,
+      abortSignal: req.signal,
+    });
+
+    return result.toUIMessageStreamResponse();
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error("Chat API error:", error);
+
+    // Return a proper error response
+    return new Response(
+      JSON.stringify({
+        error: "Failed to process chat request. Please try again.",
+        details: error instanceof Error ? error.message : "Unknown error",
+      }),
       {
-        role: "system",
-        content: prompt,
+        status: 500,
+        headers: { "Content-Type": "application/json" },
       },
-      ...convertToModelMessages(messages),
-    ],
-    stopWhen: stepCountIs(3), // stop after 3 steps to avoid RPM (requests per minute) limits breach on OpenAI free tier.
-    tools,
-    abortSignal: req.signal, // Pass the request's abort signal to properly handle cancellation
-  });
-
-  return result.toUIMessageStreamResponse();
+    );
+  }
 }

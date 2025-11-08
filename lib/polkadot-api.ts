@@ -90,6 +90,9 @@ export async function getSessionValidators({
       stakingApi = ahApi;
       activeEra = ahEra;
     }
+  } else if (!assetHubClient) {
+    // eslint-disable-next-line no-console
+    console.log("assetHubClient is not available.");
   }
 
   if (!activeEra) {
@@ -113,7 +116,7 @@ export async function getSessionValidators({
 
   const sorted = bestValidators.sort((a, b) => Number(b.staked - a.staked));
 
-  if (sorted.length > 10) {
+  if (sorted.length > 0) {
     const unit = activeChain.current.chainSpec.properties.tokenSymbol;
     const decimals = activeChain.current.chainSpec.properties.tokenDecimals;
     const topValidators = sorted.slice(0, 10).map((validator) => ({
