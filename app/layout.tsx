@@ -7,7 +7,7 @@ import {
   unbounded,
   workSans,
 } from "@/lib/font";
-import { ClientProviders } from "@/providers/client-providers";
+import { Providers } from "@/providers";
 import type { Metadata } from "next";
 import "./globals.css";
 
@@ -27,7 +27,7 @@ export default function RootLayout({
       <body
         className={`${geist.variable} ${manrope.variable} ${montserrat.variable} ${outfit.variable} ${poppins.variable} ${unbounded.variable} ${workSans.variable} antialiased`}
       >
-        <ClientProviders>{children}</ClientProviders>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
