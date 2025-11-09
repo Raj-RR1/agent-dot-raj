@@ -352,9 +352,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // During SSR or before mount, render children directly to match server render
-  // This prevents hydration mismatches
-  if (typeof window === "undefined" || !isMounted) {
+  // During SSR, static generation, or before mount, render children directly
+  // This prevents React context errors during build and hydration mismatches
+  // Check for build-time environment variables that indicate static generation
+  const isStaticGeneration =
+    typeof window === "undefined" ||
+    !isMounted ||
+    process.env.NEXT_PHASE === "phase-production-build";
+
+  if (isStaticGeneration) {
     return <>{children}</>;
   }
 
