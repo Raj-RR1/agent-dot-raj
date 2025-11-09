@@ -329,6 +329,12 @@ function WalletProviderInner({
 }
 
 export function WalletProvider({ children }: { children: ReactNode }) {
+  // CRITICAL: Check for SSR/static generation FIRST, before any hooks
+  // This prevents React from trying to access context during build
+  if (typeof window === "undefined") {
+    return <>{children}</>;
+  }
+
   // Restore chain from localStorage on mount
   const [activeChainId, setActiveChainId] = useState<string>(() => {
     if (typeof window !== "undefined") {
@@ -352,15 +358,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // During SSR, static generation, or before mount, render children directly
-  // This prevents React context errors during build and hydration mismatches
-  // Check for build-time environment variables that indicate static generation
-  const isStaticGeneration =
-    typeof window === "undefined" ||
-    !isMounted ||
-    process.env.NEXT_PHASE === "phase-production-build";
-
-  if (isStaticGeneration) {
+  // Before mount, render children directly to prevent hydration mismatches
+  if (!isMounted) {
     return <>{children}</>;
   }
 
