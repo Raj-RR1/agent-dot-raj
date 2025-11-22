@@ -206,7 +206,7 @@ type BondExtraAgentInput = z.infer<typeof _bondExtraAgentInputSchema>;
 export const bondExtraAgent = tool({
   name: "bondExtraAgent",
   description:
-    "Add more tokens to an existing bonded stake for staking on a Proof-of-Stake network within the Polkadot ecosystem. IMPORTANT: Staking locations - All networks (Polkadot, Kusama, Westend, Paseo): Use their respective AssetHub chains (Polkadot AssetHub, Kusama AssetHub, Westend AssetHub, Paseo AssetHub) as staking has migrated there. This increases the amount of tokens already locked in the stash account without changing the controller or reward destination. Use this when the account already has bonded tokens and wants to stake more.",
+    "Add more tokens to an existing bonded stake for staking on a Proof-of-Stake network within the Polkadot ecosystem. IMPORTANT: Staking locations - All networks (Polkadot, Kusama, Westend, Paseo): Use their respective AssetHub chains (Polkadot AssetHub, Kusama AssetHub, Westend AssetHub, Paseo AssetHub) as staking has migrated there. This increases the amount of tokens already locked in the stash account without changing the controller or reward destination. Use this when the account already has bonded tokens and wants to stake more. **CRITICAL: If the user requests multiple actions in one message (e.g., 'transfer X and bond extra Y'), DO NOT use this tool. Use batchAgent or batchAllAgent instead.**",
   // @ts-ignore - tool function overload issue with inline schemas (TypeScript shows error but ESLint parser doesn't)
   inputSchema: z.object({
     controllerAccount: z

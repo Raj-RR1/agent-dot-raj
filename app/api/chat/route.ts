@@ -1,5 +1,7 @@
 import { prompt } from "@/agents/prompt";
 import {
+  batchAgent,
+  batchAllAgent,
   bondAgent,
   bondExtraAgent,
   bondExtraNominationPoolsAgent,
@@ -56,6 +58,8 @@ const tools: ToolSet = {
   bondExtraNominationPoolsAgent: bondExtraNominationPoolsAgent,
   unbondFromNominationPoolsAgent: unbondFromNominationPoolsAgent,
   getTeleportRoutes: getTeleportRoutes,
+  batchAgent: batchAgent,
+  batchAllAgent: batchAllAgent,
 };
 
 export async function POST(req: Request) {

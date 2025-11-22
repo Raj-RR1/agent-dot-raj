@@ -4,6 +4,7 @@ import { MemoizedMarkdown } from "@/components/memoized-markdown";
 import { useNominationPools } from "@/hooks/use-nomination-pools";
 import { useStaking } from "@/hooks/use-staking";
 import { useTransactions } from "@/hooks/use-transactions";
+import { useUtility, type BatchTransaction } from "@/hooks/use-utility";
 import { cn, sanitizeText } from "@/lib/utils";
 import {
   Bond,
@@ -21,7 +22,7 @@ import { UseChatHelpers } from "@ai-sdk/react";
 import { UIMessage } from "ai";
 import { deepEqual } from "fast-equals";
 import { AnimatePresence, motion } from "framer-motion";
-import { memo, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { PulseLoader, SyncLoader } from "react-spinners";
 
 function PurePreviewMessage({
@@ -30,12 +31,14 @@ function PurePreviewMessage({
   isLast,
   requiresScrollToBottom,
   sendMessage,
+  addToolResult,
 }: {
   message: UIMessage;
   isStreaming: boolean;
   isLast: boolean;
   requiresScrollToBottom: boolean;
   sendMessage: UseChatHelpers<UIMessage>["sendMessage"];
+  addToolResult: UseChatHelpers<UIMessage>["addToolResult"];
 }) {
   const hasContent = message.parts.some(
     (part) => part.type === "text" && part.text.trim().length > 0,
@@ -44,10 +47,175 @@ function PurePreviewMessage({
     message.role === "assistant" && isLast && (isStreaming || !hasContent);
 
   const handleToolCallId = useRef(new Set<string>());
+  const xcmTransactionsRef = useRef<
+    { tx: XcmTransaction; toolCallId: string }[]
+  >([]);
+  const xcmBatchingRef = useRef(false);
   const { sendTransaction, sendXcmTransaction, sendXcmStablecoinTransaction } =
     useTransactions();
   const { bond, bondExtra, unbond, nominate } = useStaking();
   const { join, bondExtraToPool, unbondFromPool } = useNominationPools();
+  const { sendBatch, sendBatchAll } = useUtility();
+
+  // Reset XCM collection when message changes
+  useEffect(() => {
+    xcmTransactionsRef.current = [];
+    xcmBatchingRef.current = false;
+  }, [message.id]);
+
+  // Auto-batch multiple XCM transactions
+  useEffect(() => {
+    // Count how many xcmAgent tool calls are in this message
+    const xcmToolCalls = message.parts.filter(
+      (part) =>
+        part.type === "tool-xcmAgent" && part.state === "output-available",
+    ).length;
+
+    // Detect user preference: check for batchAgent or batchAllAgent tool calls
+    const hasBatchAgent = message.parts.some(
+      (part) =>
+        part.type === "tool-batchAgent" && part.state === "output-available",
+    );
+    const hasBatchAllAgent = message.parts.some(
+      (part) =>
+        part.type === "tool-batchAllAgent" && part.state === "output-available",
+    );
+
+    // If no explicit tool call, check text parts for keywords
+    // Default to batch (not batchAll) unless user explicitly says batchAll
+    let useBatchAll = false;
+    if (!hasBatchAgent && !hasBatchAllAgent) {
+      const messageText = message.parts
+        .filter(
+          (part): part is Extract<typeof part, { type: "text" }> =>
+            part.type === "text",
+        )
+        .map((part) => part.text)
+        .join(" ")
+        .toLowerCase();
+
+      // Check for "batchAll" variations - must be explicit
+      const batchAllPatterns = [
+        "batchall",
+        "batch all",
+        "batch-all",
+        "batch_all",
+        "use batchall",
+        "use batch all",
+        "batchall them",
+        "batch all them",
+      ];
+      const hasBatchAll = batchAllPatterns.some((pattern) =>
+        messageText.includes(pattern),
+      );
+
+      // Check for "batch" (but not "batchAll") - only use batch if batchAll is not mentioned
+      const hasBatch = messageText.includes("batch");
+
+      if (hasBatchAll) {
+        // User explicitly said batchAll - use batchAll
+        useBatchAll = true;
+      } else if (hasBatch) {
+        // User said "batch" but not "batchAll" - use batch
+        useBatchAll = false;
+      } else {
+        // No preference specified - default to batchAll for teleports (atomic is safer)
+        useBatchAll = true;
+      }
+    } else {
+      // Use explicit tool call preference
+      useBatchAll = hasBatchAllAgent;
+    }
+
+    // Only batch if:
+    // 1. We have multiple XCM transactions (2+)
+    // 2. All XCM tool calls have been processed (collected count matches available count)
+    // 3. Streaming is done (if last message, wait for streaming to finish; otherwise batch immediately)
+    // 4. We haven't already batched these transactions
+    const shouldBatch = !isLast || !isStreaming;
+    const allXcmCollected =
+      xcmTransactionsRef.current.length === xcmToolCalls && xcmToolCalls > 0;
+
+    if (
+      xcmTransactionsRef.current.length >= 2 &&
+      allXcmCollected &&
+      shouldBatch &&
+      !xcmBatchingRef.current
+    ) {
+      xcmBatchingRef.current = true;
+
+      // Convert XcmTransaction to BatchTransaction format
+      const batchTransactions: BatchTransaction[] =
+        xcmTransactionsRef.current.map(({ tx, toolCallId }) => ({
+          type: "xcm",
+          src: tx.src,
+          dst: tx.dst,
+          recipient: tx.recipient,
+          amount: tx.amount,
+          symbol: tx.symbol,
+          toolCallId, // Keep toolCallId for later
+        }));
+
+      // Clear the ref immediately to prevent race conditions
+      xcmTransactionsRef.current = [];
+
+      // Use detected preference to send batch or batchAll
+      const batchFunction = useBatchAll ? sendBatchAll : sendBatch;
+      const batchType = useBatchAll ? "BatchAll" : "Batch";
+
+      void batchFunction({ transactions: batchTransactions, sendMessage })
+        .then((txHash) => {
+          if (txHash) {
+            // Add success message for each tool call
+            batchTransactions.forEach(({ toolCallId }) => {
+              if (toolCallId) {
+                void addToolResult({
+                  tool: "xcmAgent",
+                  toolCallId,
+                  output: `${batchType} transaction successful. Transaction Hash: ${txHash}`,
+                });
+              }
+            });
+          }
+        })
+        .catch((error: unknown) => {
+          const errorMessage =
+            error instanceof Error ? error.message : "Unknown error";
+          // Add error message for each tool call
+          batchTransactions.forEach(({ toolCallId }) => {
+            if (toolCallId) {
+              void addToolResult({
+                tool: "xcmAgent",
+                toolCallId,
+                output: `${batchType} transaction failed: ${errorMessage}`,
+              });
+            }
+          });
+        });
+    } else if (
+      xcmTransactionsRef.current.length === 1 &&
+      allXcmCollected &&
+      shouldBatch &&
+      !xcmBatchingRef.current
+    ) {
+      // Single XCM transaction - send individually
+      xcmBatchingRef.current = true;
+      const { tx } = xcmTransactionsRef.current[0];
+      void sendXcmTransaction({
+        ...tx,
+        sendMessage,
+      });
+    }
+  }, [
+    isStreaming,
+    isLast,
+    message.parts,
+    sendBatch,
+    sendBatchAll,
+    sendXcmTransaction,
+    sendMessage,
+    addToolResult,
+  ]);
 
   return (
     <AnimatePresence>
@@ -135,10 +303,8 @@ function PurePreviewMessage({
 
                       if (!tx) return <div key={toolCallId}></div>;
 
-                      void sendXcmTransaction({
-                        ...tx,
-                        sendMessage,
-                      });
+                      // Collect XCM transaction for batching
+                      xcmTransactionsRef.current.push({ tx, toolCallId });
 
                       return <div key={toolCallId}></div>;
                     }
@@ -342,6 +508,60 @@ function PurePreviewMessage({
                         value: tx.unbondingPoints,
                         sendMessage,
                       });
+
+                      return <div key={toolCallId}></div>;
+                    }
+                  }
+                  if (
+                    type === "tool-batchAllAgent" &&
+                    !handleToolCallId.current.has(`batchAll-${part.toolCallId}`)
+                  ) {
+                    handleToolCallId.current.add(`batchAll-${part.toolCallId}`);
+                    const { state, toolCallId } = part;
+
+                    if (state === "output-available") {
+                      const output = part.output as {
+                        tx?: {
+                          transactions?: BatchTransaction[];
+                          transactionCount?: number;
+                        };
+                        message?: string;
+                      };
+
+                      if (!output.tx?.transactions) {
+                        return <div key={toolCallId}></div>;
+                      }
+
+                      const transactions = output.tx.transactions;
+
+                      void sendBatchAll({ transactions, sendMessage });
+
+                      return <div key={toolCallId}></div>;
+                    }
+                  }
+                  if (
+                    type === "tool-batchAgent" &&
+                    !handleToolCallId.current.has(`batch-${part.toolCallId}`)
+                  ) {
+                    handleToolCallId.current.add(`batch-${part.toolCallId}`);
+                    const { state, toolCallId } = part;
+
+                    if (state === "output-available") {
+                      const output = part.output as {
+                        tx?: {
+                          transactions?: BatchTransaction[];
+                          transactionCount?: number;
+                        };
+                        message?: string;
+                      };
+
+                      if (!output.tx?.transactions) {
+                        return <div key={toolCallId}></div>;
+                      }
+
+                      const transactions = output.tx.transactions;
+
+                      void sendBatch({ transactions, sendMessage });
 
                       return <div key={toolCallId}></div>;
                     }
