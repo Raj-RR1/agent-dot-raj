@@ -5,6 +5,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/restrict-template-expressions */
 
 import { TOKEN_DECIMALS } from "@/constants/chains";
@@ -360,9 +361,12 @@ export function useUtility() {
         }
 
         // Create batch transaction
-        // Use validCalls directly - XCM returns decodedCall, others return transaction descriptors
+        // Normalize calls: extract decodedCall if it exists, otherwise use call as-is
+        const rawCallsForBatch = validCalls.map(
+          (call) => call.decodedCall ?? call,
+        );
         const batchTx = (api.tx.Utility.batch as any)({
-          calls: validCalls,
+          calls: rawCallsForBatch,
         });
 
         // Sign and submit
@@ -506,9 +510,12 @@ export function useUtility() {
         // eslint-disable-next-line no-console
         console.log("validCalls before passing to batch_all:", validCalls);
 
-        // Use validCalls directly - XCM returns decodedCall, others return transaction descriptors
+        // Normalize calls: extract decodedCall if it exists, otherwise use call as-is
+        const rawCallsForBatch = validCalls.map(
+          (call) => call.decodedCall ?? call,
+        );
         const batchAllTx = (api.tx.Utility.batch_all as any)({
-          calls: validCalls,
+          calls: rawCallsForBatch,
         });
 
         // Sign and submit
@@ -535,14 +542,17 @@ export function useUtility() {
             );
 
             // Fallback to batch (not atomic, but will work)
-            // Use validCalls directly - XCM returns decodedCall, others return transaction descriptors
+            // Normalize calls: extract decodedCall if it exists, otherwise use call as-is
+            const rawCallsForBatch = validCalls.map(
+              (call) => call.decodedCall ?? call,
+            );
             // eslint-disable-next-line no-console
             console.log(
-              "validCalls before batch (fallback):",
-              JSON.stringify(validCalls, null, 2),
+              "rawCallsForBatch before batch (fallback):",
+              JSON.stringify(rawCallsForBatch, null, 2),
             );
             const batchTx = (api.tx.Utility.batch as any)({
-              calls: validCalls,
+              calls: rawCallsForBatch,
             });
             tx = await batchTx.signAndSubmit(selectedAccount.polkadotSigner);
 
