@@ -182,18 +182,19 @@ export function useUtility() {
             pool_id: tx.poolId,
           });
         } else if (tx.type === "bondExtraPool") {
-          const amountInPlancks = tx.amount
-            ? convertAmountToPlancks(
-                tx.amount,
-                TOKEN_DECIMALS[tokenSymbol] ?? 10,
-              )
-            : undefined;
-
           let extra: any;
           if (tx.extraType === "FreeBalance") {
-            extra = { type: "FreeBalance", value: amountInPlancks };
+            if (!tx.amount) {
+              throw new Error("Amount is required for FreeBalance bond extra");
+            }
+            const amountInPlancks = convertAmountToPlancks(
+              tx.amount,
+              TOKEN_DECIMALS[tokenSymbol] ?? 10,
+            );
+            extra = { type: "FreeBalance", value: BigInt(amountInPlancks) };
           } else {
-            extra = { type: "Rewards", value: amountInPlancks };
+            // Rewards type - no value needed
+            extra = { type: "Rewards" };
           }
 
           return (api.tx.NominationPools.bond_extra as any)({ extra });
