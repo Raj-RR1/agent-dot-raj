@@ -50,23 +50,37 @@ const bondExtraPoolTransactionSchema = z.object({
   amount: z
     .number()
     .optional()
-    .describe("Amount to bond extra (if type is FreeBalance)"),
+    .describe(
+      "Amount to bond extra (REQUIRED if extraType is FreeBalance, NOT needed if extraType is Rewards). Use this for NOMINATION POOLS only.",
+    ),
   extraType: z
     .enum(["FreeBalance", "Rewards"])
     .describe(
-      "Type of bond extra: FreeBalance for additional tokens, Rewards for restaking rewards",
+      "Type of bond extra: FreeBalance for additional tokens (requires amount), Rewards for restaking rewards (no amount needed). Use this for NOMINATION POOLS only.",
     ),
 });
 
 const unbondPoolTransactionSchema = z.object({
   type: z.literal("unbondPool"),
-  amount: z.number().describe("Amount to unbond from pool"),
+  amount: z
+    .number()
+    .describe(
+      "Amount to unbond from pool. Use this for NOMINATION POOLS only.",
+    ),
 });
 
 const xcmTransactionSchema = z.object({
   type: z.literal("xcm"),
-  src: z.string().describe("The source chain name"),
-  dst: z.string().describe("The destination chain name"),
+  src: z
+    .string()
+    .describe(
+      "The source chain name. CRITICAL: When user says 'on Paseo', they mean 'Paseo' relay chain, NOT 'Paseo AssetHub'. Same for Polkadot and Westend.",
+    ),
+  dst: z
+    .string()
+    .describe(
+      "The destination chain name. CRITICAL: When user says 'on Paseo', they mean 'Paseo' relay chain, NOT 'Paseo AssetHub'. Same for Polkadot and Westend.",
+    ),
   recipient: z.string().describe("The recipient's SS58 address"),
   amount: z.number().describe("The amount of tokens to teleport"),
   symbol: z.string().describe("The token symbol (e.g., PAS, WND, DOT)"),
@@ -88,7 +102,7 @@ const transactionSchema = z.discriminatedUnion("type", [
 export const batchAgent = tool({
   name: "batchAgent",
   description:
-    "**MUST USE THIS TOOL when user requests multiple actions in one message AND says 'batch' (but NOT 'batchAll')** (e.g., 'transfer X and bond Y, batch them', 'send A to B and bond extra C'). Batch multiple transactions together using the Utility pallet's batch function. This allows executing multiple transactions in a single call. If one transaction fails, the others will still execute. Use this when the user wants to perform multiple actions together but can tolerate partial failures. **CRITICAL: If the user says 'batchAll' or 'batch all', you MUST use batchAllAgent instead, NOT this tool.** **NEVER call individual tools (transferAgent, bondAgent, xcmAgent, etc.) when multiple actions are requested together** - always use batchAgent (when user says 'batch') or batchAllAgent (when user says 'batchAll'). Supported transaction types: transfer, bond, unbond, bondExtra, nominate, joinPool, bondExtraPool, unbondPool, xcm (teleport). MANDATORY: Ask for explicit confirmation ('yes') before calling this tool.",
+    "**MUST USE THIS TOOL when user requests multiple actions in one message (e.g., 'transfer X and bond Y', 'teleport A to B and C to D').** Batch multiple transactions together using the Utility pallet's batch function. This allows executing multiple transactions in a single call. If one transaction fails, the others will still execute (partial success allowed). **Use this as the DEFAULT for multiple actions unless the user explicitly requests 'batchAll' (atomic).** **NEVER call individual tools (transferAgent, bondAgent, xcmAgent, etc.) when multiple actions are requested together** - always use batchAgent. **CRITICAL: When user mentions 'pool', use bondExtraPool/unbondPool (NOT bondExtra/unbond). When user does NOT mention 'pool', use bondExtra/unbond (NOT bondExtraPool/unbondPool).** **For XCM/teleport transactions, you MUST explicitly confirm the source chain and destination chain in your confirmation message before the wallet popup.** **In your confirmation message, you MUST explicitly state 'I will batch these transactions'.** Supported transaction types: transfer, bond, unbond, bondExtra, nominate, joinPool, bondExtraPool, unbondPool, xcm (teleport). MANDATORY: Ask for explicit confirmation ('yes') before calling this tool.",
   // @ts-ignore - tool function overload issue with inline schemas
   inputSchema: z.object({
     transactions: z
@@ -139,7 +153,7 @@ export const batchAgent = tool({
 export const batchAllAgent = tool({
   name: "batchAllAgent",
   description:
-    "**MUST USE THIS TOOL when user requests multiple actions in one message AND explicitly says 'batchAll', 'batch all', 'batchAll them', 'use batchAll', or ANY variation containing 'batchAll'** (e.g., 'teleport X to Chain1 and teleport Y to Chain2, batchAll them', 'transfer X and bond Y, batchAll them'). Batch multiple transactions together using the Utility pallet's batch_all function. This allows executing multiple transactions in a single call. If ANY transaction fails, ALL transactions will be rolled back (atomic). Use this when the user wants to ensure all transactions succeed or none do. **CRITICAL: When user explicitly says 'batchAll' in any form, you MUST use this tool (batchAllAgent), NOT batchAgent. If user only says 'batch' (without 'All'), use batchAgent instead.** **NEVER call individual tools (transferAgent, bondAgent, xcmAgent, etc.) when multiple actions are requested together** - always use batchAllAgent when user says 'batchAll', or batchAgent when user says 'batch'. Supported transaction types: transfer, bond, unbond, bondExtra, nominate, joinPool, bondExtraPool, unbondPool, xcm (teleport). MANDATORY: Ask for explicit confirmation ('yes') before calling this tool.",
+    "**MUST USE THIS TOOL when user requests multiple actions in one message AND explicitly mentions 'batchAll', 'batchall', 'batch all', 'batch All', or explicitly states 'atomic' (e.g., 'do batchAll (atomic)').** Batch multiple transactions together using the Utility pallet's batch_all function. This allows executing multiple transactions in a single call. If ANY transaction fails, ALL transactions will be rolled back (atomic). Use this when the user wants to ensure all transactions succeed or none do. **CRITICAL: Use this ONLY if the user explicitly requests 'batchAll' or atomic behavior. If the user just says 'batch', 'send multiple', 'teleport X and Y', or lists actions, use batchAgent instead.** **DO NOT USE THIS TOOL simply because there are multiple actions.** **NEVER call individual tools when multiple actions are requested together** - always use batchAllAgent (if atomic requested) or batchAgent. **CRITICAL: When user mentions 'pool', use bondExtraPool/unbondPool (NOT bondExtra/unbond). When user does NOT mention 'pool', use bondExtra/unbond (NOT bondExtraPool/unbondPool).** **For XCM/teleport transactions, you MUST explicitly confirm the source chain and destination chain in your confirmation message before the wallet popup.** **In your confirmation message, you MUST explicitly state 'I will batchAll these transactions'.** Supported transaction types: transfer, bond, unbond, bondExtra, nominate, joinPool, bondExtraPool, unbondPool, xcm (teleport). MANDATORY: Ask for explicit confirmation ('yes') before calling this tool.",
   // @ts-ignore - tool function overload issue with inline schemas
   inputSchema: z.object({
     transactions: z
