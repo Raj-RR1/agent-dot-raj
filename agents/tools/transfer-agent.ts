@@ -17,7 +17,7 @@ type TransferAgentInput = z.infer<typeof _transferAgentInputSchema>;
 export const transferAgent = tool({
   name: "transferAgent",
   description:
-    "Prepare and confirm a transfer of tokens on the Polkadot network. **IMPORTANT: If the user requests multiple actions in one message (e.g., 'transfer X and bond Y'), DO NOT use this tool. Use batchAgent or batchAllAgent instead.**",
+    "Prepare and confirm a transfer of tokens on the Polkadot network. **IMPORTANT: If the user requests multiple actions in one message (e.g., 'transfer X and bond Y'), DO NOT use this tool. Use batchAgent or batchAllAgent instead.** **CRITICAL: IF THE USER MENTIONS 'BATCH', 'BATCHALL', 'MULTIPLE', OR LISTS MULTIPLE ACTIONS, YOU MUST IGNORE THIS TOOL AND USE `batchAgent` INSTEAD.**",
   // @ts-ignore - tool function overload issue with inline schemas (TypeScript shows error but ESLint parser doesn't)
   inputSchema: z.object({
     to: z.string().describe("A SS58-encoded wallet address to transfer to."),

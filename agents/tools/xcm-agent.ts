@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment -- TypeScript compiler shows errors but ESLint parser doesn't, so we use @ts-ignore */
+import { CHAINS } from "@/constants/chains";
 import { getNodeName, isAssetSupported } from "@/lib/paraspell";
 import { isValidEthereumAddress, isValidSS58Address } from "@/lib/utils";
 import {
@@ -8,7 +9,6 @@ import {
 } from "@paraspell/sdk";
 import { tool } from "ai";
 import z from "zod";
-import { CHAINS } from "@/constants/chains";
 
 const getAvailableSystemChains = tool({
   name: "getAvailableSystemChains",
@@ -48,7 +48,7 @@ type XcmAgentInput = z.infer<typeof _xcmAgentInputSchema>;
 const xcmAgent = tool({
   name: "xcmAgent",
   description:
-    "Prepare and confirm a SINGLE XCM transaction to teleport tokens on the Polkadot, Westend and Paseo network. **NEVER use this tool for multiple teleports** - if the user requests multiple teleports (e.g., 'teleport X to A and teleport Y to B'), you MUST use `batchAgent` or `batchAllAgent` instead. This tool is ONLY for single teleport transactions.",
+    "Prepare and confirm a SINGLE XCM transaction to teleport tokens on the Polkadot, Westend and Paseo network. **NEVER use this tool for multiple teleports** - if the user requests multiple teleports (e.g., 'teleport X to A and teleport Y to B'), you MUST use `batchAgent` or `batchAllAgent` instead. This tool is ONLY for single teleport transactions. **ABSOLUTELY DO NOT USE THIS TOOL IF THE USER ASKS FOR A BATCH OR MULTIPLE OPERATIONS.**",
   // @ts-ignore - tool function overload issue with inline schemas (TypeScript shows error but ESLint parser doesn't)
   inputSchema: z.object({
     src: z.string().describe("The source network/chain to teleport from."),
