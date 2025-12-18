@@ -62,7 +62,6 @@ const components: Partial<Components> = {
   pre: ({ children }) => <>{children}</>,
   ol: ({ node, children, ...props }) => {
     return (
-      // @ts-expect-error - React 19 type compatibility issue with refs
       <ol className="ml-4 list-outside list-decimal" {...props}>
         {children}
       </ol>
@@ -70,7 +69,6 @@ const components: Partial<Components> = {
   },
   li: ({ node, children, ...props }) => {
     return (
-      // @ts-expect-error - React 19 type compatibility issue with refs
       <li className="py-1" {...props}>
         {children}
       </li>
@@ -78,7 +76,6 @@ const components: Partial<Components> = {
   },
   ul: ({ node, children, ...props }) => {
     return (
-      // @ts-expect-error - React 19 type compatibility issue with refs
       <ul className="ml-4 list-outside list-disc" {...props}>
         {children}
       </ul>
@@ -86,7 +83,6 @@ const components: Partial<Components> = {
   },
   strong: ({ node, children, ...props }) => {
     return (
-      // @ts-expect-error - React 19 type compatibility issue with refs
       <span className="font-semibold" {...props}>
         {children}
       </span>
@@ -94,7 +90,7 @@ const components: Partial<Components> = {
   },
   a: ({ node, children, ...props }) => {
     return (
-      // @ts-expect-error next/link href is required
+      // @ts-expect-error - react-markdown a props href type compatibility with Next.js Link
       <Link
         className="text-blue-500 hover:underline"
         target="_blank"
@@ -107,7 +103,6 @@ const components: Partial<Components> = {
   },
   h1: ({ node, children, ...props }) => {
     return (
-      // @ts-expect-error - React 19 type compatibility issue with refs
       <h1 className="mt-6 mb-2 text-3xl font-semibold" {...props}>
         {children}
       </h1>
@@ -115,7 +110,6 @@ const components: Partial<Components> = {
   },
   h2: ({ node, children, ...props }) => {
     return (
-      // @ts-expect-error - React 19 type compatibility issue with refs
       <h2 className="mt-6 mb-2 text-2xl font-semibold" {...props}>
         {children}
       </h2>
@@ -123,7 +117,6 @@ const components: Partial<Components> = {
   },
   h3: ({ node, children, ...props }) => {
     return (
-      // @ts-expect-error - React 19 type compatibility issue with refs
       <h3 className="mt-6 mb-2 text-xl font-semibold" {...props}>
         {children}
       </h3>
@@ -131,7 +124,6 @@ const components: Partial<Components> = {
   },
   h4: ({ node, children, ...props }) => {
     return (
-      // @ts-expect-error - React 19 type compatibility issue with refs
       <h4 className="mt-6 mb-2 text-lg font-semibold" {...props}>
         {children}
       </h4>
@@ -139,7 +131,6 @@ const components: Partial<Components> = {
   },
   h5: ({ node, children, ...props }) => {
     return (
-      // @ts-expect-error - React 19 type compatibility issue with refs
       <h5 className="mt-6 mb-2 text-base font-semibold" {...props}>
         {children}
       </h5>
@@ -147,7 +138,6 @@ const components: Partial<Components> = {
   },
   h6: ({ node, children, ...props }) => {
     return (
-      // @ts-expect-error - React 19 type compatibility issue with refs
       <h6 className="mt-6 mb-2 text-sm font-semibold" {...props}>
         {children}
       </h6>

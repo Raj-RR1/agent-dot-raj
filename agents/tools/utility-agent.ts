@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment -- TypeScript compiler shows errors but ESLint parser doesn't, so we use @ts-ignore */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment -- Zod schema returns any for transaction arrays */
 import { tool } from "ai";
 import z from "zod";
 
@@ -132,7 +131,6 @@ export const batchAgent = tool({
   execute: async (input) => {
     const { transactions } = input;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       const transactionCount = transactions.length;
       return {
         tx: {
@@ -183,7 +181,6 @@ export const batchAllAgent = tool({
   execute: async (input) => {
     const { transactions } = input;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       const transactionCount = transactions.length;
       return {
         tx: {
