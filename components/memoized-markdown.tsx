@@ -61,29 +61,45 @@ const components: Partial<Components> = {
   code: CodeBlock as Components["code"],
   pre: ({ children }) => <>{children}</>,
   ol: ({ node, children, ...props }) => {
+    const { ref: _ref, ...restProps } = props as {
+      ref?: unknown;
+      [key: string]: unknown;
+    };
     return (
-      <ol className="ml-4 list-outside list-decimal" {...props}>
+      <ol className="ml-4 list-outside list-decimal" {...restProps}>
         {children}
       </ol>
     );
   },
   li: ({ node, children, ...props }) => {
+    const { ref: _ref, ...restProps } = props as {
+      ref?: unknown;
+      [key: string]: unknown;
+    };
     return (
-      <li className="py-1" {...props}>
+      <li className="py-1" {...restProps}>
         {children}
       </li>
     );
   },
   ul: ({ node, children, ...props }) => {
+    const { ref: _ref, ...restProps } = props as {
+      ref?: unknown;
+      [key: string]: unknown;
+    };
     return (
-      <ul className="ml-4 list-outside list-disc" {...props}>
+      <ul className="ml-4 list-outside list-disc" {...restProps}>
         {children}
       </ul>
     );
   },
   strong: ({ node, children, ...props }) => {
+    const { ref: _ref, ...restProps } = props as {
+      ref?: unknown;
+      [key: string]: unknown;
+    };
     return (
-      <span className="font-semibold" {...props}>
+      <span className="font-semibold" {...restProps}>
         {children}
       </span>
     );
@@ -102,43 +118,67 @@ const components: Partial<Components> = {
     );
   },
   h1: ({ node, children, ...props }) => {
+    const { ref: _ref, ...restProps } = props as {
+      ref?: unknown;
+      [key: string]: unknown;
+    };
     return (
-      <h1 className="mt-6 mb-2 text-3xl font-semibold" {...props}>
+      <h1 className="mt-6 mb-2 text-3xl font-semibold" {...restProps}>
         {children}
       </h1>
     );
   },
   h2: ({ node, children, ...props }) => {
+    const { ref: _ref, ...restProps } = props as {
+      ref?: unknown;
+      [key: string]: unknown;
+    };
     return (
-      <h2 className="mt-6 mb-2 text-2xl font-semibold" {...props}>
+      <h2 className="mt-6 mb-2 text-2xl font-semibold" {...restProps}>
         {children}
       </h2>
     );
   },
   h3: ({ node, children, ...props }) => {
+    const { ref: _ref, ...restProps } = props as {
+      ref?: unknown;
+      [key: string]: unknown;
+    };
     return (
-      <h3 className="mt-6 mb-2 text-xl font-semibold" {...props}>
+      <h3 className="mt-6 mb-2 text-xl font-semibold" {...restProps}>
         {children}
       </h3>
     );
   },
   h4: ({ node, children, ...props }) => {
+    const { ref: _ref, ...restProps } = props as {
+      ref?: unknown;
+      [key: string]: unknown;
+    };
     return (
-      <h4 className="mt-6 mb-2 text-lg font-semibold" {...props}>
+      <h4 className="mt-6 mb-2 text-lg font-semibold" {...restProps}>
         {children}
       </h4>
     );
   },
   h5: ({ node, children, ...props }) => {
+    const { ref: _ref, ...restProps } = props as {
+      ref?: unknown;
+      [key: string]: unknown;
+    };
     return (
-      <h5 className="mt-6 mb-2 text-base font-semibold" {...props}>
+      <h5 className="mt-6 mb-2 text-base font-semibold" {...restProps}>
         {children}
       </h5>
     );
   },
   h6: ({ node, children, ...props }) => {
+    const { ref: _ref, ...restProps } = props as {
+      ref?: unknown;
+      [key: string]: unknown;
+    };
     return (
-      <h6 className="mt-6 mb-2 text-sm font-semibold" {...props}>
+      <h6 className="mt-6 mb-2 text-sm font-semibold" {...restProps}>
         {children}
       </h6>
     );
