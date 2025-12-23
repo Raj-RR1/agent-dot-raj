@@ -51,16 +51,32 @@ function PurePreviewMessage({
     { tx: XcmTransaction; toolCallId: string }[]
   >([]);
   const xcmBatchingRef = useRef(false);
+  const transferTransactionsRef = useRef<
+    { tx: Transaction; toolCallId: string }[]
+  >([]);
+  const transferBatchingRef = useRef(false);
+  const poolTransactionsRef = useRef<
+    {
+      tx: BondExtraNominationPool | UnbondFromNominationPool;
+      toolCallId: string;
+      type: "bondExtraPool" | "unbondPool";
+    }[]
+  >([]);
+  const poolBatchingRef = useRef(false);
   const { sendTransaction, sendXcmTransaction, sendXcmStablecoinTransaction } =
     useTransactions();
   const { bond, bondExtra, unbond, nominate } = useStaking();
   const { join, bondExtraToPool, unbondFromPool } = useNominationPools();
   const { sendBatch, sendBatchAll } = useUtility();
 
-  // Reset XCM collection when message changes
+  // Reset XCM and transfer collection when message changes
   useEffect(() => {
     xcmTransactionsRef.current = [];
     xcmBatchingRef.current = false;
+    transferTransactionsRef.current = [];
+    transferBatchingRef.current = false;
+    poolTransactionsRef.current = [];
+    poolBatchingRef.current = false;
   }, [message.id]);
 
   // Auto-batch multiple XCM transactions
@@ -217,6 +233,351 @@ function PurePreviewMessage({
     addToolResult,
   ]);
 
+  // Auto-batch multiple transfer transactions
+  useEffect(() => {
+    // Count how many transferAgent tool calls are in this message
+    const transferToolCalls = message.parts.filter(
+      (part) =>
+        part.type === "tool-transferAgent" && part.state === "output-available",
+    ).length;
+
+    // Detect user preference: check for batchAgent or batchAllAgent tool calls
+    const hasBatchAgent = message.parts.some(
+      (part) =>
+        part.type === "tool-batchAgent" && part.state === "output-available",
+    );
+    const hasBatchAllAgent = message.parts.some(
+      (part) =>
+        part.type === "tool-batchAllAgent" && part.state === "output-available",
+    );
+
+    // If no explicit tool call, check text parts for keywords
+    // Default to batch (not batchAll) unless user explicitly says batchAll
+    let useBatchAll = false;
+    if (!hasBatchAgent && !hasBatchAllAgent) {
+      const messageText = message.parts
+        .filter(
+          (part): part is Extract<typeof part, { type: "text" }> =>
+            part.type === "text",
+        )
+        .map((part) => part.text)
+        .join(" ")
+        .toLowerCase();
+
+      // Check for "batchAll" variations - must be explicit
+      const batchAllPatterns = [
+        "batchall",
+        "batch all",
+        "batch-all",
+        "batch_all",
+        "use batchall",
+        "use batch all",
+        "batchall them",
+        "batch all them",
+      ];
+      const hasBatchAll = batchAllPatterns.some((pattern) =>
+        messageText.includes(pattern),
+      );
+
+      // Check for "batch" (but not "batchAll") - only use batch if batchAll is not mentioned
+      const hasBatch = messageText.includes("batch");
+
+      if (hasBatchAll) {
+        // User explicitly said batchAll - use batchAll
+        useBatchAll = true;
+      } else if (hasBatch) {
+        // User said "batch" but not "batchAll" - use batch
+        useBatchAll = false;
+      } else {
+        // No preference specified - default to batch for transfers (non-atomic is more flexible)
+        useBatchAll = false;
+      }
+    } else {
+      // Use explicit tool call preference
+      useBatchAll = hasBatchAllAgent;
+    }
+
+    // Only batch if:
+    // 1. We have multiple transfer transactions (2+)
+    // 2. All transfer tool calls have been processed (collected count matches available count)
+    // 3. Streaming is done (if last message, wait for streaming to finish; otherwise batch immediately)
+    // 4. We haven't already batched these transactions
+    const shouldBatch = !isLast || !isStreaming;
+    const allTransfersCollected =
+      transferTransactionsRef.current.length === transferToolCalls &&
+      transferToolCalls > 0;
+
+    if (
+      transferTransactionsRef.current.length >= 2 &&
+      allTransfersCollected &&
+      shouldBatch &&
+      !transferBatchingRef.current
+    ) {
+      transferBatchingRef.current = true;
+
+      // Convert Transaction to BatchTransaction format
+      const batchTransactions: BatchTransaction[] =
+        transferTransactionsRef.current.map(({ tx, toolCallId }) => ({
+          type: "transfer",
+          to: tx.to,
+          amount: tx.amount,
+          toolCallId, // Keep toolCallId for later
+        }));
+
+      // Clear the ref immediately to prevent race conditions
+      transferTransactionsRef.current = [];
+
+      // Use detected preference to send batch or batchAll
+      const batchFunction = useBatchAll ? sendBatchAll : sendBatch;
+      const batchType = useBatchAll ? "BatchAll" : "Batch";
+
+      void batchFunction({ transactions: batchTransactions, sendMessage })
+        .then((txHash) => {
+          if (txHash) {
+            // Add success message for each tool call
+            batchTransactions.forEach(({ toolCallId }) => {
+              if (toolCallId) {
+                void addToolResult({
+                  tool: "transferAgent",
+                  toolCallId,
+                  output: `${batchType} transaction successful. Transaction Hash: ${txHash}`,
+                });
+              }
+            });
+          }
+        })
+        .catch((error: unknown) => {
+          const errorMessage =
+            error instanceof Error ? error.message : "Unknown error";
+          // Add error message for each tool call
+          batchTransactions.forEach(({ toolCallId }) => {
+            if (toolCallId) {
+              void addToolResult({
+                tool: "transferAgent",
+                toolCallId,
+                output: `${batchType} transaction failed: ${errorMessage}`,
+              });
+            }
+          });
+        });
+    } else if (
+      transferTransactionsRef.current.length === 1 &&
+      allTransfersCollected &&
+      shouldBatch &&
+      !transferBatchingRef.current
+    ) {
+      // Single transfer transaction - send individually
+      transferBatchingRef.current = true;
+      const { tx } = transferTransactionsRef.current[0];
+      void sendTransaction({
+        ...tx,
+        sendMessage,
+      });
+    }
+  }, [
+    isStreaming,
+    isLast,
+    message.parts,
+    sendBatch,
+    sendBatchAll,
+    sendTransaction,
+    sendMessage,
+    addToolResult,
+  ]);
+
+  // Auto-batch multiple pool operations
+  useEffect(() => {
+    // Count how many pool tool calls are in this message
+    const bondExtraPoolCalls = message.parts.filter(
+      (part) =>
+        part.type === "tool-bondExtraNominationPoolsAgent" &&
+        part.state === "output-available",
+    ).length;
+    const unbondPoolCalls = message.parts.filter(
+      (part) =>
+        part.type === "tool-unbondFromNominationPoolsAgent" &&
+        part.state === "output-available",
+    ).length;
+    const totalPoolCalls = bondExtraPoolCalls + unbondPoolCalls;
+
+    // Detect user preference: check for batchAgent or batchAllAgent tool calls
+    const hasBatchAgent = message.parts.some(
+      (part) =>
+        part.type === "tool-batchAgent" && part.state === "output-available",
+    );
+    const hasBatchAllAgent = message.parts.some(
+      (part) =>
+        part.type === "tool-batchAllAgent" && part.state === "output-available",
+    );
+
+    // If no explicit tool call, check text parts for keywords
+    // Default to batch (not batchAll) unless user explicitly says batchAll
+    let useBatchAll = false;
+    if (!hasBatchAgent && !hasBatchAllAgent) {
+      const messageText = message.parts
+        .filter(
+          (part): part is Extract<typeof part, { type: "text" }> =>
+            part.type === "text",
+        )
+        .map((part) => part.text)
+        .join(" ")
+        .toLowerCase();
+
+      // Check for "batchAll" variations - must be explicit
+      const batchAllPatterns = [
+        "batchall",
+        "batch all",
+        "batch-all",
+        "batch_all",
+        "use batchall",
+        "use batch all",
+        "batchall them",
+        "batch all them",
+      ];
+      const hasBatchAll = batchAllPatterns.some((pattern) =>
+        messageText.includes(pattern),
+      );
+
+      // Check for "batch" (but not "batchAll") - only use batch if batchAll is not mentioned
+      const hasBatch = messageText.includes("batch");
+
+      if (hasBatchAll) {
+        // User explicitly said batchAll - use batchAll
+        useBatchAll = true;
+      } else if (hasBatch) {
+        // User said "batch" but not "batchAll" - use batch
+        useBatchAll = false;
+      } else {
+        // No preference specified - default to batch for pool operations (non-atomic is more flexible)
+        useBatchAll = false;
+      }
+    } else {
+      // Use explicit tool call preference
+      useBatchAll = hasBatchAllAgent;
+    }
+
+    // Only batch if:
+    // 1. We have multiple pool transactions (2+)
+    // 2. All pool tool calls have been processed (collected count matches available count)
+    // 3. Streaming is done (if last message, wait for streaming to finish; otherwise batch immediately)
+    // 4. We haven't already batched these transactions
+    const shouldBatch = !isLast || !isStreaming;
+    const allPoolsCollected =
+      poolTransactionsRef.current.length === totalPoolCalls &&
+      totalPoolCalls > 0;
+
+    if (
+      poolTransactionsRef.current.length >= 2 &&
+      allPoolsCollected &&
+      shouldBatch &&
+      !poolBatchingRef.current
+    ) {
+      poolBatchingRef.current = true;
+
+      // Convert pool transactions to BatchTransaction format
+      const batchTransactions: BatchTransaction[] =
+        poolTransactionsRef.current.map(({ tx, type }) => {
+          if (type === "bondExtraPool") {
+            const poolTx = tx as BondExtraNominationPool;
+            return {
+              type: "bondExtraPool",
+              amount: poolTx.amount,
+              extraType:
+                poolTx.type === "FreeBalance" ? "FreeBalance" : "Rewards",
+            };
+          } else {
+            const poolTx = tx as UnbondFromNominationPool;
+            return {
+              type: "unbondPool",
+              amount: poolTx.unbondingPoints,
+            };
+          }
+        });
+
+      // Save toolCallIds and types before clearing
+      const poolToolCalls = poolTransactionsRef.current.map(
+        ({ toolCallId, type }) => ({ toolCallId, type }),
+      );
+
+      // Clear the ref immediately to prevent race conditions
+      poolTransactionsRef.current = [];
+
+      // Use detected preference to send batch or batchAll
+      const batchFunction = useBatchAll ? sendBatchAll : sendBatch;
+      const batchType = useBatchAll ? "BatchAll" : "Batch";
+
+      void batchFunction({ transactions: batchTransactions, sendMessage })
+        .then((txHash) => {
+          if (txHash) {
+            // Add success message for each tool call
+            poolToolCalls.forEach(({ toolCallId, type }) => {
+              if (toolCallId) {
+                void addToolResult({
+                  tool:
+                    type === "bondExtraPool"
+                      ? "bondExtraNominationPoolsAgent"
+                      : "unbondFromNominationPoolsAgent",
+                  toolCallId,
+                  output: `${batchType} transaction successful. Transaction Hash: ${txHash}`,
+                });
+              }
+            });
+          }
+        })
+        .catch((error: unknown) => {
+          const errorMessage =
+            error instanceof Error ? error.message : "Unknown error";
+          // Add error message for each tool call
+          poolToolCalls.forEach(({ toolCallId, type }) => {
+            if (toolCallId) {
+              void addToolResult({
+                tool:
+                  type === "bondExtraPool"
+                    ? "bondExtraNominationPoolsAgent"
+                    : "unbondFromNominationPoolsAgent",
+                toolCallId,
+                output: `${batchType} transaction failed: ${errorMessage}`,
+              });
+            }
+          });
+        });
+    } else if (
+      poolTransactionsRef.current.length === 1 &&
+      allPoolsCollected &&
+      shouldBatch &&
+      !poolBatchingRef.current
+    ) {
+      // Single pool transaction - send individually
+      poolBatchingRef.current = true;
+      const { tx, type } = poolTransactionsRef.current[0];
+      if (type === "bondExtraPool") {
+        const poolTx = tx as BondExtraNominationPool;
+        void bondExtraToPool({
+          extra: poolTx.type,
+          amount: poolTx.amount,
+          sendMessage,
+        });
+      } else {
+        const poolTx = tx as UnbondFromNominationPool;
+        void unbondFromPool({
+          member: poolTx.memberAddress,
+          value: poolTx.unbondingPoints,
+          sendMessage,
+        });
+      }
+    }
+  }, [
+    isStreaming,
+    isLast,
+    message.parts,
+    sendBatch,
+    sendBatchAll,
+    bondExtraToPool,
+    unbondFromPool,
+    sendMessage,
+    addToolResult,
+  ]);
+
   return (
     <AnimatePresence>
       <motion.div
@@ -281,10 +642,8 @@ function PurePreviewMessage({
                         tx: Transaction;
                       };
 
-                      void sendTransaction({
-                        ...tx,
-                        sendMessage,
-                      });
+                      // Collect transfer transaction for potential batching
+                      transferTransactionsRef.current.push({ tx, toolCallId });
 
                       return <div key={toolCallId}></div>;
                     }
@@ -476,11 +835,35 @@ function PurePreviewMessage({
 
                       if (!tx) return <div key={toolCallId}></div>;
 
-                      void bondExtraToPool({
-                        extra: tx.type,
-                        amount: tx.amount,
-                        sendMessage,
-                      });
+                      // Collect for batching if multiple pool operations exist
+                      const bondExtraPoolCalls = message.parts.filter(
+                        (p) =>
+                          p.type === "tool-bondExtraNominationPoolsAgent" &&
+                          p.state === "output-available",
+                      ).length;
+                      const unbondPoolCalls = message.parts.filter(
+                        (p) =>
+                          p.type === "tool-unbondFromNominationPoolsAgent" &&
+                          p.state === "output-available",
+                      ).length;
+                      const totalPoolCalls =
+                        bondExtraPoolCalls + unbondPoolCalls;
+
+                      if (totalPoolCalls >= 2) {
+                        // Collect for batching
+                        poolTransactionsRef.current.push({
+                          tx,
+                          toolCallId,
+                          type: "bondExtraPool",
+                        });
+                      } else {
+                        // Single operation - execute immediately
+                        void bondExtraToPool({
+                          extra: tx.type,
+                          amount: tx.amount,
+                          sendMessage,
+                        });
+                      }
 
                       return <div key={toolCallId}></div>;
                     }
@@ -503,11 +886,35 @@ function PurePreviewMessage({
 
                       if (!tx) return <div key={toolCallId}></div>;
 
-                      void unbondFromPool({
-                        member: tx.memberAddress,
-                        value: tx.unbondingPoints,
-                        sendMessage,
-                      });
+                      // Collect for batching if multiple pool operations exist
+                      const bondExtraPoolCalls = message.parts.filter(
+                        (p) =>
+                          p.type === "tool-bondExtraNominationPoolsAgent" &&
+                          p.state === "output-available",
+                      ).length;
+                      const unbondPoolCalls = message.parts.filter(
+                        (p) =>
+                          p.type === "tool-unbondFromNominationPoolsAgent" &&
+                          p.state === "output-available",
+                      ).length;
+                      const totalPoolCalls =
+                        bondExtraPoolCalls + unbondPoolCalls;
+
+                      if (totalPoolCalls >= 2) {
+                        // Collect for batching
+                        poolTransactionsRef.current.push({
+                          tx,
+                          toolCallId,
+                          type: "unbondPool",
+                        });
+                      } else {
+                        // Single operation - execute immediately
+                        void unbondFromPool({
+                          member: tx.memberAddress,
+                          value: tx.unbondingPoints,
+                          sendMessage,
+                        });
+                      }
 
                       return <div key={toolCallId}></div>;
                     }
