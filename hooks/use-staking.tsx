@@ -68,15 +68,7 @@ export function useStaking() {
                     id: toastId,
                   },
                 );
-                void sendMessage({
-                  role: "assistant",
-                  parts: [
-                    {
-                      type: "text",
-                      text: `${transactionName} transaction signed. Hash: ${txHash}. Broadcasting...`,
-                    },
-                  ],
-                });
+                // Only show toast, no chat message for signed status
               } else if (status.type === "broadcasted") {
                 txHash ??= String(status.txHash);
                 const id = `broadcasted-${txHash}`;
@@ -87,15 +79,7 @@ export function useStaking() {
                   `${transactionName} transaction broadcasted: ${txHash}...`,
                   { id: toastId },
                 );
-                void sendMessage({
-                  role: "assistant",
-                  parts: [
-                    {
-                      type: "text",
-                      text: `${transactionName} transaction broadcasted. Hash: ${txHash}. Waiting for inclusion in block...`,
-                    },
-                  ],
-                });
+                // Only show toast, no chat message for broadcasted status
               } else if (status.type === "txBestBlocksState") {
                 txHash ??= String(status.txHash);
 
@@ -117,15 +101,7 @@ export function useStaking() {
                     `${transactionName} transaction included in block #${String(blockNumber)}: ${blockHash}...`,
                     { id: toastId },
                   );
-                  void sendMessage({
-                    role: "assistant",
-                    parts: [
-                      {
-                        type: "text",
-                        text: `${transactionName} transaction included in block #${String(blockNumber)} (${blockHash}). Waiting for finalization...`,
-                      },
-                    ],
-                  });
+                  // Only show toast, no chat message for in-block status
                 } else {
                   toast.loading(
                     `${transactionName} transaction pending... (valid: ${status.isValid ? "yes" : "no"})`,

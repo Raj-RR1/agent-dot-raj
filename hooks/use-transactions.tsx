@@ -23,7 +23,7 @@ import {
 import { MultiAddress } from "@polkadot-api/descriptors";
 import { useChainId, useTypedApi } from "@reactive-dot/react";
 import { UIMessage } from "ai";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { toast } from "sonner";
 
 export function useTransactions() {
@@ -32,6 +32,7 @@ export function useTransactions() {
   const activeChain =
     chainConfig.find((chain) => chain.key === chainId) ?? chainConfig[0];
   const { selectedAccount } = useWallet();
+  const sentMessages = useRef(new Set<string>());
 
   // Helper function to generate unique toast IDs
   const generateToastId = () => {
@@ -45,11 +46,11 @@ export function useTransactions() {
       toastId: string,
       transactionName: string,
       sendMessage: UseChatHelpers<UIMessage>["sendMessage"],
+      sentMessages: React.RefObject<Set<string>>,
     ): Promise<string> => {
       return new Promise<string>((resolve, reject) => {
         let txHash: string | null = null;
         let subscriptionObj: { unsubscribe: () => void } | null = null;
-        const sentMessages = new Set<string>();
 
         try {
           const subscription = tx.signSubmitAndWatch(
@@ -66,8 +67,8 @@ export function useTransactions() {
               if (status.type === "signed") {
                 txHash = txHash ?? String(status.txHash);
                 const id = `signed-${txHash}`;
-                if (sentMessages.has(id)) return;
-                sentMessages.add(id);
+                if (sentMessages.current.has(id)) return;
+                sentMessages.current.add(id);
 
                 toast.loading(
                   `${transactionName} transaction signed: ${txHash}...`,
@@ -75,64 +76,39 @@ export function useTransactions() {
                     id: toastId,
                   },
                 );
-                void sendMessage({
-                  role: "assistant",
-                  parts: [
-                    {
-                      type: "text",
-                      text: `${transactionName} transaction signed. Hash: ${txHash}. Broadcasting...`,
-                    },
-                  ],
-                });
+                // Only show toast, no chat message for signed status
               } else if (status.type === "broadcasted") {
                 txHash ??= String(status.txHash);
                 const id = `broadcasted-${txHash}`;
-                if (sentMessages.has(id)) return;
-                sentMessages.add(id);
+                if (sentMessages.current.has(id)) return;
+                sentMessages.current.add(id);
 
                 toast.loading(
                   `${transactionName} transaction broadcasted: ${txHash}...`,
                   { id: toastId },
                 );
-                void sendMessage({
-                  role: "assistant",
-                  parts: [
-                    {
-                      type: "text",
-                      text: `${transactionName} transaction broadcasted. Hash: ${txHash}. Waiting for inclusion in block...`,
-                    },
-                  ],
-                });
+                // Only show toast, no chat message for broadcasted status
               } else if (status.type === "txBestBlocksState") {
                 txHash ??= String(status.txHash);
 
                 if (status.found) {
-                  const blockHash = String(status.block.hash);
                   const blockNumber = status.block.number;
                   const id = `inblock-${txHash}-${blockNumber}`;
 
-                  if (sentMessages.has(id)) {
+                  if (sentMessages.current.has(id)) {
                     toast.loading(
-                      `${transactionName} transaction included in block #${String(blockNumber)}: ${blockHash}...`,
+                      `${transactionName} transaction included in block #${String(blockNumber)}: ${String(status.block.hash)}...`,
                       { id: toastId },
                     );
                     return;
                   }
-                  sentMessages.add(id);
+                  sentMessages.current.add(id);
 
                   toast.loading(
-                    `${transactionName} transaction included in block #${String(blockNumber)}: ${blockHash}...`,
+                    `${transactionName} transaction included in block #${String(blockNumber)}: ${String(status.block.hash)}...`,
                     { id: toastId },
                   );
-                  void sendMessage({
-                    role: "assistant",
-                    parts: [
-                      {
-                        type: "text",
-                        text: `${transactionName} transaction included in block #${String(blockNumber)} (${blockHash}). Waiting for finalization...`,
-                      },
-                    ],
-                  });
+                  // Only show toast, no chat message for in-block status
                 } else {
                   toast.loading(
                     `${transactionName} transaction pending... (valid: ${status.isValid ? "yes" : "no"})`,
@@ -141,14 +117,13 @@ export function useTransactions() {
                 }
               } else if (status.type === "finalized") {
                 const finalTxHash = txHash ?? String(status.txHash);
-                const blockHash = String(status.block.hash);
                 const blockNumber = status.block.number;
                 const id = `finalized-${finalTxHash}`;
 
-                if (sentMessages.has(id)) {
+                if (sentMessages.current.has(id)) {
                   return;
                 }
-                sentMessages.add(id);
+                sentMessages.current.add(id);
 
                 if (!status.ok) {
                   const errorMessage = status.dispatchError
@@ -187,7 +162,7 @@ export function useTransactions() {
                   parts: [
                     {
                       type: "text",
-                      text: `${transactionName} transaction finalized in block #${String(blockNumber)} (${blockHash}): https://${getSubscanSubdomain(
+                      text: `The ${transactionName} transaction has been successfully finalized in block #${String(blockNumber)}! You can view the transaction details here: https://${getSubscanSubdomain(
                         activeChain.name,
                       )}.subscan.io/extrinsic/${finalTxHash}`,
                     },
@@ -202,7 +177,7 @@ export function useTransactions() {
             error: (error: unknown) => {
               const finalTxHash = txHash ?? "unknown";
               const id = `error-${finalTxHash}`;
-              if (sentMessages.has(id)) {
+              if (sentMessages.current.has(id)) {
                 if (subscriptionObj) {
                   subscriptionObj.unsubscribe();
                 }
@@ -211,7 +186,7 @@ export function useTransactions() {
                 );
                 return;
               }
-              sentMessages.add(id);
+              sentMessages.current.add(id);
 
               const errorMessage =
                 error instanceof Error ? error.message : "Unknown error";
@@ -279,6 +254,7 @@ export function useTransactions() {
         });
       }
 
+      sentMessages.current.clear();
       const toastId = generateToastId();
       toast.loading(
         `Processing transaction of ${String(amount)} ${activeChain.chainSpec.properties.tokenSymbol} to ${to}`,
@@ -301,6 +277,7 @@ export function useTransactions() {
             toastId,
             "Transfer",
             sendMessage,
+            sentMessages,
           );
         } catch (error: unknown) {
           const err = error as Error;
@@ -314,7 +291,13 @@ export function useTransactions() {
         }
       }
     },
-    [api, selectedAccount, activeChain, createTransactionSubscription],
+    [
+      api,
+      selectedAccount,
+      activeChain,
+      createTransactionSubscription,
+      sentMessages,
+    ],
   );
 
   const sendXcmTransaction = useCallback(
@@ -347,6 +330,7 @@ export function useTransactions() {
         });
       }
 
+      sentMessages.current.clear();
       const toastId = generateToastId();
       toast.loading(
         `Processing XCM transaction of ${amount.toFixed(3)} ${symbol} from ${src} to ${dst}`,
@@ -369,7 +353,13 @@ export function useTransactions() {
 
           const tx = await builder.build();
 
-          await createTransactionSubscription(tx, toastId, "XCM", sendMessage);
+          await createTransactionSubscription(
+            tx,
+            toastId,
+            "XCM",
+            sendMessage,
+            sentMessages,
+          );
 
           await builder.disconnect();
         } catch (error: unknown) {
@@ -381,7 +371,7 @@ export function useTransactions() {
         }
       }
     },
-    [selectedAccount, activeChain],
+    [selectedAccount, createTransactionSubscription, sentMessages],
   );
 
   const sendXcmStablecoinTransaction = useCallback(
@@ -415,6 +405,7 @@ export function useTransactions() {
         });
       }
 
+      sentMessages.current.clear();
       const toastId = generateToastId();
       toast.loading(
         `Processing XCM transaction of ${amount.toFixed(3)} ${symbol} from ${src} to ${dst}`,
@@ -442,6 +433,7 @@ export function useTransactions() {
             toastId,
             "XCM Stablecoin",
             sendMessage,
+            sentMessages,
           );
 
           await builder.disconnect();
@@ -454,7 +446,7 @@ export function useTransactions() {
         }
       }
     },
-    [selectedAccount, createTransactionSubscription],
+    [selectedAccount, createTransactionSubscription, sentMessages],
   );
 
   return { sendTransaction, sendXcmTransaction, sendXcmStablecoinTransaction };

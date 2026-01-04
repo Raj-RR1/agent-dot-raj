@@ -403,6 +403,7 @@ export function useUtility() {
         return await new Promise<string | null>((resolve, reject) => {
           let txHash: string | null = null;
           let subscriptionObj: { unsubscribe: () => void } | null = null;
+          let isResolved = false;
 
           try {
             const subscription = batchTx.signSubmitAndWatch(
@@ -411,6 +412,11 @@ export function useUtility() {
 
             subscriptionObj = subscription.subscribe({
               next: (status: any) => {
+                // Early return if already resolved to prevent duplicate processing
+                if (isResolved) {
+                  return;
+                }
+
                 // Set txHash as soon as we get it and track it
                 if (status.txHash && !txHash) {
                   txHash = String(status.txHash);
@@ -422,53 +428,44 @@ export function useUtility() {
                   txHash = txHash ?? String(status.txHash);
                   activeBatchTxHash.current = txHash;
                   const id = `signed-${txHash}`;
-                  if (sentBatchMessages.current.has(id)) return;
+
+                  // Atomic check-and-add to prevent race conditions
+                  if (sentBatchMessages.current.has(id)) {
+                    return;
+                  }
                   sentBatchMessages.current.add(id);
 
                   toast.loading(`Batch transaction signed: ${txHash}...`, {
                     id: toastId,
                   });
-                  void sendMessage({
-                    role: "assistant",
-                    parts: [
-                      {
-                        type: "text",
-                        text: `Batch transaction signed. Hash: ${txHash}. Broadcasting...`,
-                      },
-                    ],
-                  });
+                  // Only show toast, no chat message for signed status
                 } else if (status.type === "broadcasted") {
                   txHash ??= String(status.txHash);
                   activeBatchTxHash.current = txHash;
                   const id = `broadcasted-${txHash}`;
-                  if (sentBatchMessages.current.has(id)) return;
+
+                  // Atomic check-and-add to prevent race conditions
+                  if (sentBatchMessages.current.has(id)) {
+                    return;
+                  }
                   sentBatchMessages.current.add(id);
 
                   toast.loading(`Batch transaction broadcasted: ${txHash}...`, {
                     id: toastId,
                   });
-                  void sendMessage({
-                    role: "assistant",
-                    parts: [
-                      {
-                        type: "text",
-                        text: `Batch transaction broadcasted. Hash: ${txHash}. Waiting for inclusion in block...`,
-                      },
-                    ],
-                  });
+                  // Only show toast, no chat message for broadcasted status
                 } else if (status.type === "txBestBlocksState") {
                   txHash ??= String(status.txHash);
                   activeBatchTxHash.current = txHash;
 
                   if (status.found) {
-                    const blockHash = String(status.block.hash);
                     const blockNumber = status.block.number;
                     const id = `inblock-${txHash}-${blockNumber}`;
 
                     if (sentBatchMessages.current.has(id)) {
                       // Already sent, just update toast
                       toast.loading(
-                        `Batch transaction included in block #${String(blockNumber)}: ${blockHash}...`,
+                        `Batch transaction included in block #${String(blockNumber)}: ${String(status.block.hash)}...`,
                         { id: toastId },
                       );
                       return;
@@ -476,18 +473,10 @@ export function useUtility() {
                     sentBatchMessages.current.add(id);
 
                     toast.loading(
-                      `Batch transaction included in block #${String(blockNumber)}: ${blockHash}...`,
+                      `Batch transaction included in block #${String(blockNumber)}: ${String(status.block.hash)}...`,
                       { id: toastId },
                     );
-                    void sendMessage({
-                      role: "assistant",
-                      parts: [
-                        {
-                          type: "text",
-                          text: `Batch transaction included in block #${String(blockNumber)} (${blockHash}). Waiting for finalization...`,
-                        },
-                      ],
-                    });
+                    // Only show toast, no chat message for in-block status
                   } else {
                     // Transaction not found yet, but checking validity
                     toast.loading(
@@ -498,7 +487,6 @@ export function useUtility() {
                 } else if (status.type === "finalized") {
                   const finalTxHash = txHash ?? String(status.txHash);
                   activeBatchTxHash.current = finalTxHash;
-                  const blockHash = String(status.block.hash);
                   const blockNumber = status.block.number;
                   const id = `finalized-${finalTxHash}`;
 
@@ -510,6 +498,11 @@ export function useUtility() {
 
                   if (!status.ok) {
                     // Transaction finalized but failed
+                    if (isResolved) {
+                      return;
+                    }
+                    isResolved = true;
+
                     const errorMessage = status.dispatchError
                       ? JSON.stringify(status.dispatchError)
                       : "Transaction failed";
@@ -534,6 +527,11 @@ export function useUtility() {
                   }
 
                   // Transaction finalized successfully
+                  if (isResolved) {
+                    return;
+                  }
+                  isResolved = true;
+
                   toast.success(
                     `Batch transaction finalized: https://${getSubscanSubdomain(
                       activeChain.name,
@@ -545,7 +543,7 @@ export function useUtility() {
                     parts: [
                       {
                         type: "text",
-                        text: `Batch transaction finalized in block #${String(blockNumber)} (${blockHash}): https://${getSubscanSubdomain(
+                        text: `Batch transaction finalized in block #${String(blockNumber)} (${String(status.block.hash)}): https://${getSubscanSubdomain(
                           activeChain.name,
                         )}.subscan.io/extrinsic/${finalTxHash}`,
                       },
@@ -559,6 +557,11 @@ export function useUtility() {
                 }
               },
               error: (error: unknown) => {
+                if (isResolved) {
+                  return;
+                }
+                isResolved = true;
+
                 const finalTxHash = txHash ?? "unknown";
                 const id = `error-${finalTxHash}`;
                 if (sentBatchMessages.current.has(id)) {
@@ -743,6 +746,7 @@ export function useUtility() {
           return new Promise<string>((resolve, reject) => {
             let txHash: string | null = null;
             let subscriptionObj: { unsubscribe: () => void } | null = null;
+            let isResolved = false;
 
             try {
               const subscription = tx.signSubmitAndWatch(
@@ -751,6 +755,11 @@ export function useUtility() {
 
               subscriptionObj = subscription.subscribe({
                 next: (status: any) => {
+                  // Early return if already resolved to prevent duplicate processing
+                  if (isResolved) {
+                    return;
+                  }
+
                   // Set txHash as soon as we get it and track it
                   if (status.txHash && !txHash) {
                     txHash = String(status.txHash);
@@ -764,7 +773,11 @@ export function useUtility() {
                     txHash = txHash ?? String(status.txHash);
                     activeBatchAllTxHash.current = txHash;
                     const id = `signed-${txHash}`;
-                    if (sentBatchAllMessages.current.has(id)) return;
+
+                    // Atomic check-and-add to prevent race conditions
+                    if (sentBatchAllMessages.current.has(id)) {
+                      return;
+                    }
                     sentBatchAllMessages.current.add(id);
 
                     toast.loading(
@@ -773,48 +786,35 @@ export function useUtility() {
                         id: toastId,
                       },
                     );
-                    void sendMessage({
-                      role: "assistant",
-                      parts: [
-                        {
-                          type: "text",
-                          text: `${txType} transaction signed. Hash: ${txHash}. Broadcasting...`,
-                        },
-                      ],
-                    });
+                    // Only show toast, no chat message for signed status
                   } else if (status.type === "broadcasted") {
                     txHash ??= String(status.txHash);
                     activeBatchAllTxHash.current = txHash;
                     const id = `broadcasted-${txHash}`;
-                    if (sentBatchAllMessages.current.has(id)) return;
+
+                    // Atomic check-and-add to prevent race conditions
+                    if (sentBatchAllMessages.current.has(id)) {
+                      return;
+                    }
                     sentBatchAllMessages.current.add(id);
 
                     toast.loading(
                       `${txType} transaction broadcasted: ${txHash}...`,
                       { id: toastId },
                     );
-                    void sendMessage({
-                      role: "assistant",
-                      parts: [
-                        {
-                          type: "text",
-                          text: `${txType} transaction broadcasted. Hash: ${txHash}. Waiting for inclusion in block...`,
-                        },
-                      ],
-                    });
+                    // Only show toast, no chat message for broadcasted status
                   } else if (status.type === "txBestBlocksState") {
                     txHash ??= String(status.txHash);
                     activeBatchAllTxHash.current = txHash;
 
                     if (status.found) {
-                      const blockHash = String(status.block.hash);
                       const blockNumber = status.block.number;
                       const id = `inblock-${txHash}-${blockNumber}`;
 
                       if (sentBatchAllMessages.current.has(id)) {
                         // Already sent, just update toast
                         toast.loading(
-                          `${txType} transaction included in block #${String(blockNumber)}: ${blockHash}...`,
+                          `${txType} transaction included in block #${String(blockNumber)}: ${String(status.block.hash)}...`,
                           { id: toastId },
                         );
                         return;
@@ -822,18 +822,10 @@ export function useUtility() {
                       sentBatchAllMessages.current.add(id);
 
                       toast.loading(
-                        `${txType} transaction included in block #${String(blockNumber)}: ${blockHash}...`,
+                        `${txType} transaction included in block #${String(blockNumber)}: ${String(status.block.hash)}...`,
                         { id: toastId },
                       );
-                      void sendMessage({
-                        role: "assistant",
-                        parts: [
-                          {
-                            type: "text",
-                            text: `${txType} transaction included in block #${String(blockNumber)} (${blockHash}). Waiting for finalization...`,
-                          },
-                        ],
-                      });
+                      // Only show toast, no chat message for in-block status
                     } else {
                       // Transaction not found yet, but checking validity
                       toast.loading(
@@ -844,7 +836,6 @@ export function useUtility() {
                   } else if (status.type === "finalized") {
                     const finalTxHash = txHash ?? String(status.txHash);
                     activeBatchAllTxHash.current = finalTxHash;
-                    const blockHash = String(status.block.hash);
                     const blockNumber = status.block.number;
                     const id = `finalized-${finalTxHash}`;
 
@@ -856,6 +847,11 @@ export function useUtility() {
 
                     if (!status.ok) {
                       // Transaction finalized but failed
+                      if (isResolved) {
+                        return;
+                      }
+                      isResolved = true;
+
                       const errorMessage = status.dispatchError
                         ? JSON.stringify(status.dispatchError)
                         : "Transaction failed";
@@ -881,6 +877,11 @@ export function useUtility() {
                     }
 
                     // Transaction finalized successfully
+                    if (isResolved) {
+                      return;
+                    }
+                    isResolved = true;
+
                     toast.success(
                       `${txType} transaction finalized: https://${getSubscanSubdomain(
                         activeChain.name,
@@ -892,7 +893,7 @@ export function useUtility() {
                       parts: [
                         {
                           type: "text",
-                          text: `${txType} transaction finalized in block #${String(blockNumber)} (${blockHash}): https://${getSubscanSubdomain(
+                          text: `${txType} transaction finalized in block #${String(blockNumber)} (${String(status.block.hash)}): https://${getSubscanSubdomain(
                             activeChain.name,
                           )}.subscan.io/extrinsic/${finalTxHash}`,
                         },
@@ -906,6 +907,11 @@ export function useUtility() {
                   }
                 },
                 error: (error: unknown) => {
+                  if (isResolved) {
+                    return;
+                  }
+                  isResolved = true;
+
                   const finalTxHash = txHash ?? "unknown";
                   const id = `error-${finalTxHash}`;
                   if (sentBatchAllMessages.current.has(id)) {

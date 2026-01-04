@@ -8,7 +8,7 @@
 /* eslint-disable @typescript-eslint/restrict-template-expressions */
 
 import { StakingDescriptors } from "@/lib/polkadot-api";
-import { convertAmountToPlancks } from "@/lib/utils";
+import { convertAmountToPlancks, getSubscanSubdomain } from "@/lib/utils";
 import { chainConfig } from "@/papi-config";
 import { useWallet } from "@/providers/wallet-provider";
 import { UseChatHelpers } from "@ai-sdk/react";
@@ -17,7 +17,6 @@ import { useChainId, useClient } from "@reactive-dot/react";
 import { UIMessage } from "ai";
 import { useCallback } from "react";
 import { toast } from "sonner";
-import { getSubscanSubdomain } from "@/lib/utils";
 
 export function useNominationPools() {
   const client = useClient();
@@ -68,15 +67,7 @@ export function useNominationPools() {
                     id: toastId,
                   },
                 );
-                void sendMessage({
-                  role: "assistant",
-                  parts: [
-                    {
-                      type: "text",
-                      text: `${transactionName} transaction signed. Hash: ${txHash}. Broadcasting...`,
-                    },
-                  ],
-                });
+                // Only show toast, no chat message for signed status
               } else if (status.type === "broadcasted") {
                 txHash ??= String(status.txHash);
                 const id = `broadcasted-${txHash}`;
@@ -87,15 +78,7 @@ export function useNominationPools() {
                   `${transactionName} transaction broadcasted: ${txHash}...`,
                   { id: toastId },
                 );
-                void sendMessage({
-                  role: "assistant",
-                  parts: [
-                    {
-                      type: "text",
-                      text: `${transactionName} transaction broadcasted. Hash: ${txHash}. Waiting for inclusion in block...`,
-                    },
-                  ],
-                });
+                // Only show toast, no chat message for broadcasted status
               } else if (status.type === "txBestBlocksState") {
                 txHash ??= String(status.txHash);
 
@@ -117,15 +100,7 @@ export function useNominationPools() {
                     `${transactionName} transaction included in block #${String(blockNumber)}: ${blockHash}...`,
                     { id: toastId },
                   );
-                  void sendMessage({
-                    role: "assistant",
-                    parts: [
-                      {
-                        type: "text",
-                        text: `${transactionName} transaction included in block #${String(blockNumber)} (${blockHash}). Waiting for finalization...`,
-                      },
-                    ],
-                  });
+                  // Only show toast, no chat message for in-block status
                 } else {
                   toast.loading(
                     `${transactionName} transaction pending... (valid: ${status.isValid ? "yes" : "no"})`,
