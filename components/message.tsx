@@ -6,6 +6,7 @@ import { useStaking } from "@/hooks/use-staking";
 import { useTransactions } from "@/hooks/use-transactions";
 import { useUtility, type BatchTransaction } from "@/hooks/use-utility";
 import { cn, sanitizeText } from "@/lib/utils";
+import { useTransactionQueueContext } from "@/providers/transaction-queue-provider";
 import {
   Bond,
   BondExtra,
@@ -47,6 +48,26 @@ function PurePreviewMessage({
     message.role === "assistant" && isLast && (isStreaming || !hasContent);
 
   const handleToolCallId = useRef(new Set<string>());
+
+  // Helper function to count all transaction tool calls in the message
+  const countAllTransactionToolCalls = (
+    parts: typeof message.parts,
+  ): number => {
+    return parts.filter(
+      (p) =>
+        (p.type === "tool-transferAgent" ||
+          p.type === "tool-xcmAgent" ||
+          p.type === "tool-bondAgent" ||
+          p.type === "tool-bondExtraAgent" ||
+          p.type === "tool-unbondAgent" ||
+          p.type === "tool-nominateAgent" ||
+          p.type === "tool-joinNominationPoolsAgent" ||
+          p.type === "tool-bondExtraNominationPoolsAgent" ||
+          p.type === "tool-unbondFromNominationPoolsAgent" ||
+          p.type === "tool-xcmStablecoinFromAssetHubAgent") &&
+        p.state === "output-available",
+    ).length;
+  };
   const xcmTransactionsRef = useRef<
     { tx: XcmTransaction; toolCallId: string }[]
   >([]);
@@ -76,6 +97,7 @@ function PurePreviewMessage({
   const { bond, bondExtra, unbond, nominate } = useStaking();
   const { join, bondExtraToPool, unbondFromPool } = useNominationPools();
   const { sendBatch, sendBatchAll } = useUtility();
+  const { addTransaction, queue } = useTransactionQueueContext();
 
   // Reset XCM and transfer collection when message changes
   useEffect(() => {
@@ -158,15 +180,18 @@ function PurePreviewMessage({
     // 2. All XCM tool calls have been processed (collected count matches available count)
     // 3. Streaming is done (if last message, wait for streaming to finish; otherwise batch immediately)
     // 4. We haven't already batched these transactions
+    // 5. Transactions are NOT in the queue (queue takes precedence)
     const shouldBatch = !isLast || !isStreaming;
     const allXcmCollected =
       xcmTransactionsRef.current.length === xcmToolCalls && xcmToolCalls > 0;
+    const hasQueuedXcm = queue.some((tx) => tx.transaction.type === "xcm");
 
     if (
       xcmTransactionsRef.current.length >= 2 &&
       allXcmCollected &&
       shouldBatch &&
-      !xcmBatchingRef.current
+      !xcmBatchingRef.current &&
+      !hasQueuedXcm
     ) {
       xcmBatchingRef.current = true;
 
@@ -312,16 +337,21 @@ function PurePreviewMessage({
     // 2. All transfer tool calls have been processed (collected count matches available count)
     // 3. Streaming is done (if last message, wait for streaming to finish; otherwise batch immediately)
     // 4. We haven't already batched these transactions
+    // 5. Transactions are NOT in the queue (queue takes precedence)
     const shouldBatch = !isLast || !isStreaming;
     const allTransfersCollected =
       transferTransactionsRef.current.length === transferToolCalls &&
       transferToolCalls > 0;
+    const hasQueuedTransfers = queue.some(
+      (tx) => tx.transaction.type === "transfer",
+    );
 
     if (
       transferTransactionsRef.current.length >= 2 &&
       allTransfersCollected &&
       shouldBatch &&
-      !transferBatchingRef.current
+      !transferBatchingRef.current &&
+      !hasQueuedTransfers
     ) {
       transferBatchingRef.current = true;
 
@@ -862,8 +892,34 @@ function PurePreviewMessage({
                         tx: Transaction;
                       };
 
-                      // Collect transfer transaction for potential batching
-                      transferTransactionsRef.current.push({ tx, toolCallId });
+                      // Check total number of transactions of ANY type in the message
+                      const totalToolCalls = countAllTransactionToolCalls(
+                        message.parts,
+                      );
+
+                      if (totalToolCalls >= 2) {
+                        // Multiple transactions (of any type) - add to queue
+                        const batchTx: BatchTransaction = {
+                          type: "transfer",
+                          to: tx.to,
+                          amount: tx.amount,
+                        };
+                        // Defer state update to avoid setState during render
+                        queueMicrotask(() => {
+                          addTransaction(batchTx);
+                        });
+
+                        // DON'T push to transferTransactionsRef - queue handles execution
+                        // This prevents the useEffect from auto-batching
+                      } else {
+                        // Single transaction - execute immediately
+                        // DON'T push to transferTransactionsRef - this prevents the useEffect from executing it again
+                        void sendTransaction({
+                          to: tx.to,
+                          amount: tx.amount,
+                          sendMessage,
+                        });
+                      }
 
                       return <div key={toolCallId}></div>;
                     }
@@ -882,8 +938,36 @@ function PurePreviewMessage({
 
                       if (!tx) return <div key={toolCallId}></div>;
 
-                      // Collect XCM transaction for batching
-                      xcmTransactionsRef.current.push({ tx, toolCallId });
+                      // Check total number of transactions of ANY type in the message
+                      const totalToolCalls = countAllTransactionToolCalls(
+                        message.parts,
+                      );
+
+                      if (totalToolCalls >= 2) {
+                        // Multiple transactions (of any type) - add to queue
+                        const batchTx: BatchTransaction = {
+                          type: "xcm",
+                          src: tx.src,
+                          dst: tx.dst,
+                          recipient: tx.recipient,
+                          amount: tx.amount,
+                          symbol: tx.symbol,
+                        };
+                        // Defer state update to avoid setState during render
+                        queueMicrotask(() => {
+                          addTransaction(batchTx);
+                        });
+
+                        // DON'T push to xcmTransactionsRef - queue handles execution
+                        // This prevents the useEffect from auto-batching
+                      } else {
+                        // Single transaction - execute immediately
+                        // DON'T push to xcmTransactionsRef - this prevents the useEffect from executing it again
+                        void sendXcmTransaction({
+                          ...tx,
+                          sendMessage,
+                        });
+                      }
 
                       return <div key={toolCallId}></div>;
                     }
@@ -906,6 +990,8 @@ function PurePreviewMessage({
 
                       if (!tx) return <div key={toolCallId}></div>;
 
+                      // Note: XCM stablecoin transactions are not supported in batch transactions
+                      // Keep original execution only
                       void sendXcmStablecoinTransaction({
                         ...tx,
                         sendMessage,
@@ -927,18 +1013,41 @@ function PurePreviewMessage({
                       };
 
                       if (!tx) return <div key={toolCallId}></div>;
-                      if (tx.payee === "Account") {
-                        void bond({
-                          payee: { type: "Account", value: tx.rewardAccount },
+
+                      // Check total number of transactions of ANY type in the message
+                      const totalToolCalls = countAllTransactionToolCalls(
+                        message.parts,
+                      );
+
+                      if (totalToolCalls >= 2) {
+                        // Multiple transactions (of any type) - add to queue
+                        const batchTx: BatchTransaction = {
+                          type: "bond",
+                          payee:
+                            tx.payee === "Account"
+                              ? { type: "Account", value: tx.rewardAccount }
+                              : { type: tx.payee, value: undefined },
                           amount: tx.value,
-                          sendMessage,
+                        };
+                        // Defer state update to avoid setState during render
+                        queueMicrotask(() => {
+                          addTransaction(batchTx);
                         });
                       } else {
-                        void bond({
-                          payee: { type: tx.payee, value: undefined },
-                          amount: tx.value,
-                          sendMessage,
-                        });
+                        // Single transaction - execute immediately
+                        if (tx.payee === "Account") {
+                          void bond({
+                            payee: { type: "Account", value: tx.rewardAccount },
+                            amount: tx.value,
+                            sendMessage,
+                          });
+                        } else {
+                          void bond({
+                            payee: { type: tx.payee, value: undefined },
+                            amount: tx.value,
+                            sendMessage,
+                          });
+                        }
                       }
 
                       return <div key={toolCallId}></div>;
@@ -962,17 +1071,23 @@ function PurePreviewMessage({
 
                       if (!tx) return <div key={toolCallId}></div>;
 
-                      // Collect for batching if multiple staking operations exist
-                      const stakingToolCalls = message.parts.filter(
-                        (p) =>
-                          (p.type === "tool-bondExtraAgent" ||
-                            p.type === "tool-unbondAgent" ||
-                            p.type === "tool-nominateAgent") &&
-                          p.state === "output-available",
-                      ).length;
+                      // Check total number of transactions of ANY type in the message
+                      const totalToolCalls = countAllTransactionToolCalls(
+                        message.parts,
+                      );
 
-                      if (stakingToolCalls >= 2) {
-                        // Collect for batching
+                      if (totalToolCalls >= 2) {
+                        // Multiple transactions (of any type) - add to queue
+                        const batchTx: BatchTransaction = {
+                          type: "bondExtra",
+                          amount: tx.maxAdditional,
+                        };
+                        // Defer state update to avoid setState during render
+                        queueMicrotask(() => {
+                          addTransaction(batchTx);
+                        });
+
+                        // Collect for batching (keep for backward compatibility)
                         stakingTransactionsRef.current.push({
                           tx,
                           toolCallId,
@@ -1003,17 +1118,23 @@ function PurePreviewMessage({
 
                       if (!tx) return <div key={toolCallId}></div>;
 
-                      // Collect for batching if multiple staking operations exist
-                      const stakingToolCalls = message.parts.filter(
-                        (p) =>
-                          (p.type === "tool-bondExtraAgent" ||
-                            p.type === "tool-unbondAgent" ||
-                            p.type === "tool-nominateAgent") &&
-                          p.state === "output-available",
-                      ).length;
+                      // Check total number of transactions of ANY type in the message
+                      const totalToolCalls = countAllTransactionToolCalls(
+                        message.parts,
+                      );
 
-                      if (stakingToolCalls >= 2) {
-                        // Collect for batching
+                      if (totalToolCalls >= 2) {
+                        // Multiple transactions (of any type) - add to queue
+                        const batchTx: BatchTransaction = {
+                          type: "nominate",
+                          targets: tx.targets,
+                        };
+                        // Defer state update to avoid setState during render
+                        queueMicrotask(() => {
+                          addTransaction(batchTx);
+                        });
+
+                        // Collect for batching (keep for backward compatibility)
                         stakingTransactionsRef.current.push({
                           tx,
                           toolCallId,
@@ -1044,17 +1165,23 @@ function PurePreviewMessage({
 
                       if (!tx) return <div key={toolCallId}></div>;
 
-                      // Collect for batching if multiple staking operations exist
-                      const stakingToolCalls = message.parts.filter(
-                        (p) =>
-                          (p.type === "tool-bondExtraAgent" ||
-                            p.type === "tool-unbondAgent" ||
-                            p.type === "tool-nominateAgent") &&
-                          p.state === "output-available",
-                      ).length;
+                      // Check total number of transactions of ANY type in the message
+                      const totalToolCalls = countAllTransactionToolCalls(
+                        message.parts,
+                      );
 
-                      if (stakingToolCalls >= 2) {
-                        // Collect for batching
+                      if (totalToolCalls >= 2) {
+                        // Multiple transactions (of any type) - add to queue
+                        const batchTx: BatchTransaction = {
+                          type: "unbond",
+                          amount: tx.value,
+                        };
+                        // Defer state update to avoid setState during render
+                        queueMicrotask(() => {
+                          addTransaction(batchTx);
+                        });
+
+                        // Collect for batching (keep for backward compatibility)
                         stakingTransactionsRef.current.push({
                           tx,
                           toolCallId,
@@ -1085,11 +1212,30 @@ function PurePreviewMessage({
 
                       if (!tx) return <div key={toolCallId}></div>;
 
-                      void join({
-                        poolId: tx.poolId,
-                        amount: tx.amount,
-                        sendMessage,
-                      });
+                      // Check total number of transactions of ANY type in the message
+                      const totalToolCalls = countAllTransactionToolCalls(
+                        message.parts,
+                      );
+
+                      if (totalToolCalls >= 2) {
+                        // Multiple transactions (of any type) - add to queue
+                        const batchTx: BatchTransaction = {
+                          type: "joinPool",
+                          poolId: tx.poolId,
+                          amount: tx.amount,
+                        };
+                        // Defer state update to avoid setState during render
+                        queueMicrotask(() => {
+                          addTransaction(batchTx);
+                        });
+                      } else {
+                        // Single transaction - execute immediately
+                        void join({
+                          poolId: tx.poolId,
+                          amount: tx.amount,
+                          sendMessage,
+                        });
+                      }
 
                       return <div key={toolCallId}></div>;
                     }
@@ -1113,21 +1259,24 @@ function PurePreviewMessage({
                       if (!tx) return <div key={toolCallId}></div>;
 
                       // Collect for batching if multiple pool operations exist
-                      const bondExtraPoolCalls = message.parts.filter(
-                        (p) =>
-                          p.type === "tool-bondExtraNominationPoolsAgent" &&
-                          p.state === "output-available",
-                      ).length;
-                      const unbondPoolCalls = message.parts.filter(
-                        (p) =>
-                          p.type === "tool-unbondFromNominationPoolsAgent" &&
-                          p.state === "output-available",
-                      ).length;
-                      const totalPoolCalls =
-                        bondExtraPoolCalls + unbondPoolCalls;
+                      // Check total number of transactions of ANY type in the message
+                      const totalToolCalls = countAllTransactionToolCalls(
+                        message.parts,
+                      );
 
-                      if (totalPoolCalls >= 2) {
-                        // Collect for batching
+                      if (totalToolCalls >= 2) {
+                        // Multiple transactions (of any type) - add to queue
+                        const batchTx: BatchTransaction = {
+                          type: "bondExtraPool",
+                          extraType: tx.type,
+                          amount: tx.amount,
+                        };
+                        // Defer state update to avoid setState during render
+                        queueMicrotask(() => {
+                          addTransaction(batchTx);
+                        });
+
+                        // Collect for batching (keep for backward compatibility)
                         poolTransactionsRef.current.push({
                           tx,
                           toolCallId,
@@ -1164,21 +1313,23 @@ function PurePreviewMessage({
                       if (!tx) return <div key={toolCallId}></div>;
 
                       // Collect for batching if multiple pool operations exist
-                      const bondExtraPoolCalls = message.parts.filter(
-                        (p) =>
-                          p.type === "tool-bondExtraNominationPoolsAgent" &&
-                          p.state === "output-available",
-                      ).length;
-                      const unbondPoolCalls = message.parts.filter(
-                        (p) =>
-                          p.type === "tool-unbondFromNominationPoolsAgent" &&
-                          p.state === "output-available",
-                      ).length;
-                      const totalPoolCalls =
-                        bondExtraPoolCalls + unbondPoolCalls;
+                      // Check total number of transactions of ANY type in the message
+                      const totalToolCalls = countAllTransactionToolCalls(
+                        message.parts,
+                      );
 
-                      if (totalPoolCalls >= 2) {
-                        // Collect for batching
+                      if (totalToolCalls >= 2) {
+                        // Multiple transactions (of any type) - add to queue
+                        const batchTx: BatchTransaction = {
+                          type: "unbondPool",
+                          amount: tx.unbondingPoints,
+                        };
+                        // Defer state update to avoid setState during render
+                        queueMicrotask(() => {
+                          addTransaction(batchTx);
+                        });
+
+                        // Collect for batching (keep for backward compatibility)
                         poolTransactionsRef.current.push({
                           tx,
                           toolCallId,
@@ -1253,27 +1404,22 @@ function PurePreviewMessage({
 
                       const transactions = output.tx.transactions;
 
+                      // Add all transactions to queue instead of executing immediately
+                      // Mark as batchAll (atomic) since they came from batchAllAgent
+                      // Defer state update to avoid setState during render
+                      queueMicrotask(() => {
+                        transactions.forEach((tx) => {
+                          addTransaction(tx, true);
+                        });
+                      });
+
                       // eslint-disable-next-line no-console
                       console.log(
-                        "batchAllAgent: Executing sendBatchAll with transactions:",
-                        transactions,
+                        "batchAllAgent: Added transactions to queue:",
+                        transactions.length,
                       );
 
-                      void sendBatchAll({ transactions, sendMessage })
-                        .then((txHash) => {
-                          // eslint-disable-next-line no-console
-                          console.log(
-                            "batchAllAgent: sendBatchAll completed",
-                            txHash,
-                          );
-                        })
-                        .catch((error: unknown) => {
-                          // eslint-disable-next-line no-console
-                          console.error(
-                            "batchAllAgent: sendBatchAll failed",
-                            error,
-                          );
-                        });
+                      // DON'T call sendBatchAll here - let the queue handle execution
 
                       return <div key={toolCallId}></div>;
                     }
@@ -1335,25 +1481,22 @@ function PurePreviewMessage({
 
                       const transactions = output.tx.transactions;
 
+                      // Add all transactions to queue instead of executing immediately
+                      // Use batch (non-atomic) since they came from batchAgent
+                      // Defer state update to avoid setState during render
+                      queueMicrotask(() => {
+                        transactions.forEach((tx) => {
+                          addTransaction(tx, false);
+                        });
+                      });
+
                       // eslint-disable-next-line no-console
                       console.log(
-                        "batchAgent: Executing sendBatch with transactions:",
-                        transactions,
+                        "batchAgent: Added transactions to queue:",
+                        transactions.length,
                       );
 
-                      void sendBatch({ transactions, sendMessage })
-                        .then((txHash) => {
-                          // eslint-disable-next-line no-console
-                          console.log(
-                            "batchAgent: sendBatch completed",
-                            txHash,
-                          );
-                        })
-                        .catch((error: unknown) => {
-                          // eslint-disable-next-line no-console
-                          console.error("batchAgent: sendBatch failed", error);
-                        });
-
+                      // DON'T call sendBatch here - let the queue handle execution
                       return <div key={toolCallId}></div>;
                     }
                   }

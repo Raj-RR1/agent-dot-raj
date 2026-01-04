@@ -380,8 +380,22 @@ export function useUtility() {
         toast.loading("Processing Batch transaction...", { id: toastId });
 
         // Build all transaction calls
-        const callPromises = transactions.map((tx) => buildTransactionCall(tx));
-        const rawCalls = await Promise.all(callPromises);
+        let rawCalls: any[];
+        try {
+          const callPromises = transactions.map((tx) =>
+            buildTransactionCall(tx),
+          );
+          rawCalls = await Promise.all(callPromises);
+        } catch (error) {
+          // Dismiss loading toast on build error
+          toast.dismiss(toastId);
+          const errorMessage =
+            error instanceof Error ? error.message : "Unknown error";
+          // eslint-disable-next-line no-console
+          console.error("Error building transactions:", error);
+          toast.error(`Failed to build transactions: ${errorMessage}`);
+          throw new Error(`Failed to build transactions: ${errorMessage}`);
+        }
 
         // Filter out null calls
         const validCalls = rawCalls.filter((call) => call !== null);
@@ -670,29 +684,44 @@ export function useUtility() {
         toast.loading("Processing BatchAll transaction...", { id: toastId });
         // Verify Utility pallet exists
         if (!api.tx.Utility) {
+          toast.dismiss(toastId);
           throw new Error("Utility pallet not available on this chain");
         }
 
         if (!api.tx.Utility.batch_all) {
+          toast.dismiss(toastId);
           throw new Error("batch_all method not available on Utility pallet");
         }
 
         // Build all transaction calls
-        const callPromises = transactions.map((tx, index) => {
-          // eslint-disable-next-line no-console
-          console.log(
-            `Building transaction ${String(index + 1)}/${String(transactions.length)}:`,
-            tx,
-          );
-          return buildTransactionCall(tx);
-        });
+        let rawCalls: any[];
+        try {
+          const callPromises = transactions.map((tx, index) => {
+            // eslint-disable-next-line no-console
+            console.log(
+              `Building transaction ${String(index + 1)}/${String(transactions.length)}:`,
+              tx,
+            );
+            return buildTransactionCall(tx);
+          });
 
-        const rawCalls = await Promise.all(callPromises);
+          rawCalls = await Promise.all(callPromises);
+        } catch (error) {
+          // Dismiss loading toast on build error
+          toast.dismiss(toastId);
+          const errorMessage =
+            error instanceof Error ? error.message : "Unknown error";
+          // eslint-disable-next-line no-console
+          console.error("Error building transactions:", error);
+          toast.error(`Failed to build transactions: ${errorMessage}`);
+          throw new Error(`Failed to build transactions: ${errorMessage}`);
+        }
 
         // Filter out null calls
         const validCalls = rawCalls.filter((call) => call !== null);
 
         if (validCalls.length === 0) {
+          toast.dismiss(toastId);
           throw new Error("No valid transactions to batch");
         }
 
