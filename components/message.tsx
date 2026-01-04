@@ -63,6 +63,14 @@ function PurePreviewMessage({
     }[]
   >([]);
   const poolBatchingRef = useRef(false);
+  const stakingTransactionsRef = useRef<
+    {
+      tx: BondExtra | Unbond | Nominate;
+      toolCallId: string;
+      type: "bondExtra" | "unbond" | "nominate";
+    }[]
+  >([]);
+  const stakingBatchingRef = useRef(false);
   const { sendTransaction, sendXcmTransaction, sendXcmStablecoinTransaction } =
     useTransactions();
   const { bond, bondExtra, unbond, nominate } = useStaking();
@@ -77,6 +85,8 @@ function PurePreviewMessage({
     transferBatchingRef.current = false;
     poolTransactionsRef.current = [];
     poolBatchingRef.current = false;
+    stakingTransactionsRef.current = [];
+    stakingBatchingRef.current = false;
   }, [message.id]);
 
   // Auto-batch multiple XCM transactions
@@ -578,6 +588,216 @@ function PurePreviewMessage({
     addToolResult,
   ]);
 
+  // Auto-batch multiple staking transactions
+  useEffect(() => {
+    // Check if batchAgent or batchAllAgent tool calls exist (regardless of state)
+    // If they do, skip auto-batching - the explicit batch tool should take precedence
+    const hasBatchAgentCall = message.parts.some(
+      (part) => part.type === "tool-batchAgent",
+    );
+    const hasBatchAllAgentCall = message.parts.some(
+      (part) => part.type === "tool-batchAllAgent",
+    );
+
+    // If explicit batch tools are called, don't auto-batch
+    if (hasBatchAgentCall || hasBatchAllAgentCall) {
+      return;
+    }
+
+    // Count how many staking tool calls are in this message
+    const stakingToolCalls = message.parts.filter(
+      (part) =>
+        (part.type === "tool-bondExtraAgent" ||
+          part.type === "tool-unbondAgent" ||
+          part.type === "tool-nominateAgent") &&
+        part.state === "output-available",
+    ).length;
+
+    // Detect user preference: check for batchAgent or batchAllAgent tool calls
+    const hasBatchAgent = message.parts.some(
+      (part) =>
+        part.type === "tool-batchAgent" && part.state === "output-available",
+    );
+    const hasBatchAllAgent = message.parts.some(
+      (part) =>
+        part.type === "tool-batchAllAgent" && part.state === "output-available",
+    );
+
+    // If no explicit tool call, check text parts for keywords
+    let useBatchAll = false;
+    if (!hasBatchAgent && !hasBatchAllAgent) {
+      const messageText = message.parts
+        .filter(
+          (part): part is Extract<typeof part, { type: "text" }> =>
+            part.type === "text",
+        )
+        .map((part) => part.text)
+        .join(" ")
+        .toLowerCase();
+
+      // Check for "batchAll" variations - must be explicit
+      const batchAllPatterns = [
+        "batchall",
+        "batch all",
+        "batch-all",
+        "batch_all",
+        "use batchall",
+        "use batch all",
+        "batchall them",
+        "batch all them",
+        "batchall these",
+        "batch all these",
+      ];
+      const hasBatchAll = batchAllPatterns.some((pattern) =>
+        messageText.includes(pattern),
+      );
+
+      // Check for "batch" (but not "batchAll") - only use batch if batchAll is not mentioned
+      const hasBatch = messageText.includes("batch");
+
+      if (hasBatchAll) {
+        useBatchAll = true;
+      } else if (hasBatch) {
+        useBatchAll = false;
+      } else {
+        // No preference specified - default to batch for staking (partial success is acceptable)
+        useBatchAll = false;
+      }
+    } else {
+      useBatchAll = hasBatchAllAgent;
+    }
+
+    // Only batch if:
+    // 1. We have multiple staking transactions (2+)
+    // 2. All staking tool calls have been processed
+    // 3. Streaming is done
+    // 4. We haven't already batched these transactions
+    const shouldBatch = !isLast || !isStreaming;
+    const allStakingCollected =
+      stakingTransactionsRef.current.length === stakingToolCalls &&
+      stakingToolCalls > 0;
+
+    if (
+      stakingTransactionsRef.current.length >= 2 &&
+      allStakingCollected &&
+      shouldBatch &&
+      !stakingBatchingRef.current
+    ) {
+      stakingBatchingRef.current = true;
+
+      // Convert staking transactions to BatchTransaction format
+      const batchTransactions: BatchTransaction[] =
+        stakingTransactionsRef.current.map(({ tx, type }) => {
+          if (type === "bondExtra") {
+            return {
+              type: "bondExtra",
+              amount: (tx as BondExtra).maxAdditional,
+            };
+          } else if (type === "unbond") {
+            return {
+              type: "unbond",
+              amount: (tx as Unbond).value,
+            };
+          } else {
+            // nominate
+            return {
+              type: "nominate",
+              targets: (tx as Nominate).targets,
+            };
+          }
+        });
+
+      // Save toolCallIds and types before clearing
+      const stakingToolCallIds = stakingTransactionsRef.current.map(
+        ({ toolCallId, type }) => ({ toolCallId, type }),
+      );
+
+      // Clear the ref immediately to prevent race conditions
+      stakingTransactionsRef.current = [];
+
+      // Use detected preference to send batch or batchAll
+      const batchFunction = useBatchAll ? sendBatchAll : sendBatch;
+      const batchType = useBatchAll ? "BatchAll" : "Batch";
+
+      void batchFunction({ transactions: batchTransactions, sendMessage })
+        .then((txHash) => {
+          if (txHash) {
+            // Add success message for each tool call
+            stakingToolCallIds.forEach(({ toolCallId, type }) => {
+              if (toolCallId) {
+                void addToolResult({
+                  tool:
+                    type === "bondExtra"
+                      ? "bondExtraAgent"
+                      : type === "unbond"
+                        ? "unbondAgent"
+                        : "nominateAgent",
+                  toolCallId,
+                  output: `${batchType} transaction successful. Transaction Hash: ${txHash}`,
+                });
+              }
+            });
+          }
+        })
+        .catch((error: unknown) => {
+          const errorMessage =
+            error instanceof Error ? error.message : "Unknown error";
+          // Add error message for each tool call
+          stakingToolCallIds.forEach(({ toolCallId, type }) => {
+            if (toolCallId) {
+              void addToolResult({
+                tool:
+                  type === "bondExtra"
+                    ? "bondExtraAgent"
+                    : type === "unbond"
+                      ? "unbondAgent"
+                      : "nominateAgent",
+                toolCallId,
+                output: `${batchType} transaction failed: ${errorMessage}`,
+              });
+            }
+          });
+        });
+    } else if (
+      stakingTransactionsRef.current.length === 1 &&
+      allStakingCollected &&
+      shouldBatch &&
+      !stakingBatchingRef.current
+    ) {
+      // Single staking transaction - send individually
+      stakingBatchingRef.current = true;
+      const { tx, type } = stakingTransactionsRef.current[0];
+      if (type === "bondExtra") {
+        void bondExtra({
+          amount: (tx as BondExtra).maxAdditional,
+          sendMessage,
+        });
+      } else if (type === "unbond") {
+        void unbond({
+          amount: (tx as Unbond).value,
+          sendMessage,
+        });
+      } else {
+        // nominate
+        void nominate({
+          ...(tx as Nominate),
+          sendMessage,
+        });
+      }
+    }
+  }, [
+    isStreaming,
+    isLast,
+    message.parts,
+    sendBatch,
+    sendBatchAll,
+    bondExtra,
+    unbond,
+    nominate,
+    sendMessage,
+    addToolResult,
+  ]);
+
   return (
     <AnimatePresence>
       <motion.div
@@ -742,10 +962,29 @@ function PurePreviewMessage({
 
                       if (!tx) return <div key={toolCallId}></div>;
 
-                      void bondExtra({
-                        amount: tx.maxAdditional,
-                        sendMessage,
-                      });
+                      // Collect for batching if multiple staking operations exist
+                      const stakingToolCalls = message.parts.filter(
+                        (p) =>
+                          (p.type === "tool-bondExtraAgent" ||
+                            p.type === "tool-unbondAgent" ||
+                            p.type === "tool-nominateAgent") &&
+                          p.state === "output-available",
+                      ).length;
+
+                      if (stakingToolCalls >= 2) {
+                        // Collect for batching
+                        stakingTransactionsRef.current.push({
+                          tx,
+                          toolCallId,
+                          type: "bondExtra",
+                        });
+                      } else {
+                        // Single operation - execute immediately
+                        void bondExtra({
+                          amount: tx.maxAdditional,
+                          sendMessage,
+                        });
+                      }
 
                       return <div key={toolCallId}></div>;
                     }
@@ -764,10 +1003,29 @@ function PurePreviewMessage({
 
                       if (!tx) return <div key={toolCallId}></div>;
 
-                      void nominate({
-                        ...tx,
-                        sendMessage,
-                      });
+                      // Collect for batching if multiple staking operations exist
+                      const stakingToolCalls = message.parts.filter(
+                        (p) =>
+                          (p.type === "tool-bondExtraAgent" ||
+                            p.type === "tool-unbondAgent" ||
+                            p.type === "tool-nominateAgent") &&
+                          p.state === "output-available",
+                      ).length;
+
+                      if (stakingToolCalls >= 2) {
+                        // Collect for batching
+                        stakingTransactionsRef.current.push({
+                          tx,
+                          toolCallId,
+                          type: "nominate",
+                        });
+                      } else {
+                        // Single operation - execute immediately
+                        void nominate({
+                          ...tx,
+                          sendMessage,
+                        });
+                      }
 
                       return <div key={toolCallId}></div>;
                     }
@@ -786,10 +1044,29 @@ function PurePreviewMessage({
 
                       if (!tx) return <div key={toolCallId}></div>;
 
-                      void unbond({
-                        amount: tx.value,
-                        sendMessage,
-                      });
+                      // Collect for batching if multiple staking operations exist
+                      const stakingToolCalls = message.parts.filter(
+                        (p) =>
+                          (p.type === "tool-bondExtraAgent" ||
+                            p.type === "tool-unbondAgent" ||
+                            p.type === "tool-nominateAgent") &&
+                          p.state === "output-available",
+                      ).length;
+
+                      if (stakingToolCalls >= 2) {
+                        // Collect for batching
+                        stakingTransactionsRef.current.push({
+                          tx,
+                          toolCallId,
+                          type: "unbond",
+                        });
+                      } else {
+                        // Single operation - execute immediately
+                        void unbond({
+                          amount: tx.value,
+                          sendMessage,
+                        });
+                      }
 
                       return <div key={toolCallId}></div>;
                     }
@@ -926,6 +1203,30 @@ function PurePreviewMessage({
                     handleToolCallId.current.add(`batchAll-${part.toolCallId}`);
                     const { state, toolCallId } = part;
 
+                    // eslint-disable-next-line no-console
+                    console.log("batchAllAgent tool call:", {
+                      state,
+                      toolCallId,
+                      output: part.output,
+                      error:
+                        "error" in part
+                          ? (part as { error?: unknown }).error
+                          : undefined,
+                    });
+
+                    if (state === "output-error") {
+                      // eslint-disable-next-line no-console
+                      console.error("batchAllAgent: Tool execution failed", {
+                        toolCallId,
+                        output: part.output,
+                        error:
+                          "error" in part
+                            ? (part as { error?: unknown }).error
+                            : undefined,
+                      });
+                      // Don't return early - let it continue to check other states
+                    }
+
                     if (state === "output-available") {
                       const output = part.output as {
                         tx?: {
@@ -935,13 +1236,44 @@ function PurePreviewMessage({
                         message?: string;
                       };
 
-                      if (!output.tx?.transactions) {
+                      // eslint-disable-next-line no-console
+                      console.log("batchAllAgent output:", output);
+
+                      if (
+                        !output.tx?.transactions ||
+                        output.tx.transactions.length === 0
+                      ) {
+                        // eslint-disable-next-line no-console
+                        console.warn(
+                          "batchAllAgent: No transactions found in output",
+                          output,
+                        );
                         return <div key={toolCallId}></div>;
                       }
 
                       const transactions = output.tx.transactions;
 
-                      void sendBatchAll({ transactions, sendMessage });
+                      // eslint-disable-next-line no-console
+                      console.log(
+                        "batchAllAgent: Executing sendBatchAll with transactions:",
+                        transactions,
+                      );
+
+                      void sendBatchAll({ transactions, sendMessage })
+                        .then((txHash) => {
+                          // eslint-disable-next-line no-console
+                          console.log(
+                            "batchAllAgent: sendBatchAll completed",
+                            txHash,
+                          );
+                        })
+                        .catch((error: unknown) => {
+                          // eslint-disable-next-line no-console
+                          console.error(
+                            "batchAllAgent: sendBatchAll failed",
+                            error,
+                          );
+                        });
 
                       return <div key={toolCallId}></div>;
                     }
@@ -953,6 +1285,30 @@ function PurePreviewMessage({
                     handleToolCallId.current.add(`batch-${part.toolCallId}`);
                     const { state, toolCallId } = part;
 
+                    // eslint-disable-next-line no-console
+                    console.log("batchAgent tool call:", {
+                      state,
+                      toolCallId,
+                      output: part.output,
+                      error:
+                        "error" in part
+                          ? (part as { error?: unknown }).error
+                          : undefined,
+                    });
+
+                    if (state === "output-error") {
+                      // eslint-disable-next-line no-console
+                      console.error("batchAgent: Tool execution failed", {
+                        toolCallId,
+                        output: part.output,
+                        error:
+                          "error" in part
+                            ? (part as { error?: unknown }).error
+                            : undefined,
+                      });
+                      // Don't return early - let it continue to check other states
+                    }
+
                     if (state === "output-available") {
                       const output = part.output as {
                         tx?: {
@@ -962,13 +1318,41 @@ function PurePreviewMessage({
                         message?: string;
                       };
 
-                      if (!output.tx?.transactions) {
+                      // eslint-disable-next-line no-console
+                      console.log("batchAgent output:", output);
+
+                      if (
+                        !output.tx?.transactions ||
+                        output.tx.transactions.length === 0
+                      ) {
+                        // eslint-disable-next-line no-console
+                        console.warn(
+                          "batchAgent: No transactions found in output",
+                          output,
+                        );
                         return <div key={toolCallId}></div>;
                       }
 
                       const transactions = output.tx.transactions;
 
-                      void sendBatch({ transactions, sendMessage });
+                      // eslint-disable-next-line no-console
+                      console.log(
+                        "batchAgent: Executing sendBatch with transactions:",
+                        transactions,
+                      );
+
+                      void sendBatch({ transactions, sendMessage })
+                        .then((txHash) => {
+                          // eslint-disable-next-line no-console
+                          console.log(
+                            "batchAgent: sendBatch completed",
+                            txHash,
+                          );
+                        })
+                        .catch((error: unknown) => {
+                          // eslint-disable-next-line no-console
+                          console.error("batchAgent: sendBatch failed", error);
+                        });
 
                       return <div key={toolCallId}></div>;
                     }
